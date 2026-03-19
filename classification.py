@@ -1,29 +1,22 @@
 """
-SC4021 Information Retrieval - 5-Fold TF-IDF Classification
-============================================================
-Features:
-1. Configurable text column and label column (supports original/normalized/subtask)
-2. TF-IDF + multiple classifiers (Logistic Regression, SVM, Naive Bayes, Random Forest)
-3. Stratified 5-fold cross-validation
-4. Per-fold and aggregate metrics: Precision, Recall, F1, Accuracy
-5. Confusion matrix, per-class report, classification speed benchmarks
-6. Optional n-gram range, max features, preprocessing toggles
+SC4021 Information Retrieval - Preprocessed Data Classification & Comparison
+=============================================================================
+Based on classification.py, this script systematically evaluates the impact of:
+1. Text representation: original_text vs normalized_text
+2. Multiple label tasks: sentiment_final, sarcasm_final, subjectivity_final, emotion_final
 
-Usage examples:
-    # Original text + original label (3-class sentiment)
-    python classification_5fold.py --input eval.csv --text_col text --label_col label
+It runs TF-IDF + multiple classifiers with 5-fold stratified CV for every
+(text_col, label_col) combination and produces a consolidated comparison report.
 
-    # Preprocessed: normalized text + majority-voted sentiment
-    python classification_5fold.py --input eval_preprocessed.csv \\
-        --text_col normalized_text --label_col sentiment_final
+Usage:
+    # Run all experiments (default)
+    python classification_preprocessed.py
 
-    # Subtask: original text + sarcasm label (binary)
-    python classification_5fold.py --input eval_preprocessed.csv \\
-        --text_col original_text --label_col sarcasm_final
+    # Specify classifiers
+    python classification_preprocessed.py --classifiers logistic svm nb
 
-    # Subtask: normalized text + emotion label (multi-class)
-    python classification_5fold.py --input eval_preprocessed.csv \\
-        --text_col normalized_text --label_col emotion_final
+    # Custom TF-IDF parameters
+    python classification_preprocessed.py --max_features 80000 --ngram_max 3
 
 Author: Zhang
 Date: 2026-03
@@ -48,30 +41,55 @@ from sklearn.metrics import (
     accuracy_score, precision_recall_fscore_support,
     classification_report, confusion_matrix
 )
-from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 
+import sys
+import builtins
 import warnings
 warnings.filterwarnings('ignore')
+
+# Force all print() output to flush immediately (avoids buffering issues)
+_original_print = builtins.print
+def print(*a, **kw):
+    kw.setdefault('flush', True)
+    _original_print(*a, **kw)
+builtins.print = print
 
 
 # ============================================================================
 # CLI Arguments
 # ============================================================================
 parser = argparse.ArgumentParser(
-    description="5-Fold TF-IDF Classification for SC4021 eval dataset",
+    description="Preprocessed Data Classification & Comparison for SC4021",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 
 # Data
-parser.add_argument('--input', type=str, default='eval.csv',
-                    help='Input CSV file')
-parser.add_argument('--text_col', type=str, default='text',
-                    help='Column name for text input')
-parser.add_argument('--label_col', type=str, default='label',
-                    help='Column name for label')
-parser.add_argument('--output_report', type=str, default=None,
-                    help='Path to save JSON report (default: auto-named)')
+parser.add_argument('--input', type=str, default='eval_preprocessed.csv',
+                    help='Input preprocessed CSV file')
+parser.add_argument('--output_report', type=str, default='classification_comparison_report.json',
+                    help='Path to save JSON comparison report')
+
+# Post-training prediction
+parser.add_argument('--predict_input', type=str, default='crawled_clean.csv',
+                    help='CSV file to run prediction on (after training)')
+parser.add_argument('--predict_output', type=str, default='crawled_clean_with_predictions.csv',
+                    help='Output CSV path with Output_1 and Output_2 columns')
+parser.add_argument('--predict_json_output', type=str, default='crawled_clean_predictions.json',
+                    help='Output JSON path containing prediction details and label distributions')
+parser.add_argument('--predict_text_col', type=str, default='body',
+                    help='Text column in predict_input to classify')
+parser.add_argument('--skip_prediction', action='store_true',
+                    help='Skip post-training prediction step')
+
+# Experiment selection
+parser.add_argument('--text_cols', type=str, nargs='+',
+                    default=['original_text', 'normalized_text'],
+                    help='Text columns to compare')
+parser.add_argument('--label_cols', type=str, nargs='+',
+                    default=['sentiment_final', 'sarcasm_final',
+                             'subjectivity_final', 'emotion_final'],
+                    help='Label columns to evaluate')
 
 # TF-IDF parameters
 parser.add_argument('--max_features', type=int, default=50000,
@@ -112,11 +130,35 @@ args = parser.parse_args()
 
 
 # ============================================================================
+# Label display name mappings (for readability)
+# ============================================================================
+LABEL_COL_DISPLAY = {
+    'sentiment_final':    'Sentiment (3-class)',
+    'sarcasm_final':      'Sarcasm (binary)',
+    'subjectivity_final': 'Subjectivity (binary)',
+    'emotion_final':      'Emotion (7-class)',
+}
+
+TEXT_COL_DISPLAY = {
+    'original_text':   'Original (Singlish)',
+    'normalized_text': 'Normalized (Std English)',
+}
+
+CLASSIFIER_NAMES = {
+    'logistic': 'Logistic Regression',
+    'svm':      'Linear SVM',
+    'nb':       'Multinomial Naive Bayes',
+    'rf':       'Random Forest',
+    'gb':       'Gradient Boosting',
+}
+
+
+# ============================================================================
 # Data Loading
 # ============================================================================
 
 def load_data(filepath: str, text_col: str, label_col: str
-              ) -> Tuple[List[str], List[int], List[str]]:
+              ) -> Tuple[List[str], np.ndarray, List[str]]:
     """
     Load CSV and extract text + labels.
     Returns: (texts, labels_int, label_names)
@@ -127,7 +169,6 @@ def load_data(filepath: str, text_col: str, label_col: str
     with open(filepath, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         available_cols = reader.fieldnames
-        print(f"Available columns: {available_cols}")
 
         if text_col not in available_cols:
             raise ValueError(
@@ -159,56 +200,43 @@ def load_data(filepath: str, text_col: str, label_col: str
 # Classifier Factory
 # ============================================================================
 
-def get_classifier(name: str):
+def get_classifier(name: str, seed: int):
     """Return classifier instance by name"""
     classifiers = {
         'logistic': LogisticRegression(
-            max_iter=1000, C=1.0, solver='lbfgs',
-            random_state=args.seed
+            max_iter=1000, C=1.0, solver='lbfgs', random_state=seed
         ),
         'svm': LinearSVC(
-            max_iter=2000, C=1.0, random_state=args.seed
+            max_iter=2000, C=1.0, random_state=seed
         ),
         'nb': MultinomialNB(alpha=0.1),
         'rf': RandomForestClassifier(
             n_estimators=200, max_depth=None,
-            random_state=args.seed, n_jobs=-1
+            random_state=seed, n_jobs=-1
         ),
         'gb': GradientBoostingClassifier(
-            n_estimators=100, max_depth=5,
-            random_state=args.seed
+            n_estimators=100, max_depth=5, random_state=seed
         ),
     }
     return classifiers[name]
 
 
-CLASSIFIER_NAMES = {
-    'logistic': 'Logistic Regression',
-    'svm': 'Linear SVM',
-    'nb': 'Multinomial Naive Bayes',
-    'rf': 'Random Forest',
-    'gb': 'Gradient Boosting',
-}
-
-
 # ============================================================================
-# 5-Fold Cross Validation
+# 5-Fold Cross Validation (single experiment)
 # ============================================================================
 
 def run_5fold(
     texts: List[str],
     labels: np.ndarray,
     label_names: List[str],
-    classifier_name: str
+    classifier_name: str,
+    verbose: bool = True
 ) -> Dict:
     """
     Run stratified 5-fold CV with TF-IDF + classifier.
     Returns detailed metrics dict.
     """
     clf_display = CLASSIFIER_NAMES.get(classifier_name, classifier_name)
-    print(f"\n{'='*60}")
-    print(f"Classifier: {clf_display}")
-    print(f"{'='*60}")
 
     skf = StratifiedKFold(
         n_splits=args.n_folds, shuffle=True, random_state=args.seed
@@ -245,7 +273,7 @@ def run_5fold(
         X_test = vectorizer.transform(test_texts)
 
         # Train
-        clf = get_classifier(classifier_name)
+        clf = get_classifier(classifier_name, args.seed)
         t0 = time.time()
         clf.fit(X_train, y_train)
         train_time = time.time() - t0
@@ -286,10 +314,11 @@ def run_5fold(
         all_y_true.extend(y_test.tolist())
         all_y_pred.extend(y_pred.tolist())
 
-        print(f"  Fold {fold_idx+1}/{args.n_folds}: "
-              f"Acc={acc:.4f}  F1(macro)={f1:.4f}  "
-              f"F1(weighted)={f1_w:.4f}  "
-              f"[train={train_time:.2f}s, predict={predict_time:.3f}s]")
+        if verbose:
+            print(f"    Fold {fold_idx+1}/{args.n_folds}: "
+                  f"Acc={acc:.4f}  F1(macro)={f1:.4f}  "
+                  f"F1(weighted)={f1_w:.4f}  "
+                  f"[train={train_time:.2f}s, predict={predict_time:.3f}s]")
 
     # Aggregate metrics
     all_y_true = np.array(all_y_true)
@@ -317,30 +346,6 @@ def run_5fold(
     # Speed metrics
     records_per_sec = (total_predict_samples / total_predict_time
                        if total_predict_time > 0 else 0)
-
-    print(f"\n  --- Aggregate ({args.n_folds}-Fold) ---")
-    print(f"  Accuracy:           {overall_acc:.4f}")
-    print(f"  Macro Precision:    {overall_prec:.4f}")
-    print(f"  Macro Recall:       {overall_rec:.4f}")
-    print(f"  Macro F1:           {overall_f1:.4f}")
-    print(f"  Weighted F1:        {overall_f1_w:.4f}")
-    print(f"  Speed:              {records_per_sec:.0f} records/sec")
-    print(f"\n  Confusion Matrix:")
-    # Print header
-    header = "  " + " " * 12 + "  ".join(f"{n:>8}" for n in label_names)
-    print(header)
-    for i, row in enumerate(cm):
-        row_str = "  ".join(f"{v:>8}" for v in row)
-        print(f"  {label_names[i]:>10}  {row_str}")
-
-    print(f"\n  Per-Class Report:")
-    print(f"  {'Class':>12}  {'Prec':>8}  {'Recall':>8}  {'F1':>8}  {'Support':>8}")
-    for name in label_names:
-        if name in report:
-            r = report[name]
-            print(f"  {name:>12}  {r['precision']:>8.4f}  "
-                  f"{r['recall']:>8.4f}  {r['f1-score']:>8.4f}  "
-                  f"{r['support']:>8.0f}")
 
     return {
         'classifier': clf_display,
@@ -370,99 +375,588 @@ def run_5fold(
 
 
 # ============================================================================
+# Print Helpers
+# ============================================================================
+
+def print_experiment_result(result: Dict, label_names: List[str]):
+    """Print detailed metrics for one experiment run"""
+    agg = result['aggregate']
+    perf = result['performance']
+    cm = np.array(result['confusion_matrix'])
+
+    print(f"    Accuracy:           {agg['accuracy']:.4f}")
+    print(f"    Macro Precision:    {agg['macro_precision']:.4f}")
+    print(f"    Macro Recall:       {agg['macro_recall']:.4f}")
+    print(f"    Macro F1:           {agg['macro_f1']:.4f}")
+    print(f"    Weighted F1:        {agg['weighted_f1']:.4f}")
+    print(f"    Speed:              {perf['records_per_second']:.0f} records/sec")
+
+    # Confusion matrix
+    print(f"\n    Confusion Matrix:")
+    header = "    " + " " * 14 + "  ".join(f"{n:>10}" for n in label_names)
+    print(header)
+    for i, row in enumerate(cm):
+        row_str = "  ".join(f"{v:>10}" for v in row)
+        print(f"    {label_names[i]:>12}  {row_str}")
+
+    # Per-class report
+    per_class = result['per_class_report']
+    print(f"\n    Per-Class Report:")
+    print(f"    {'Class':>14}  {'Prec':>8}  {'Recall':>8}  {'F1':>8}  {'Support':>8}")
+    for name in label_names:
+        if name in per_class:
+            r = per_class[name]
+            print(f"    {name:>14}  {r['precision']:>8.4f}  "
+                  f"{r['recall']:>8.4f}  {r['f1-score']:>8.4f}  "
+                  f"{r['support']:>8.0f}")
+
+
+def print_comparison_table(comparison_data: List[Dict]):
+    """Print a comparison table across all experiments"""
+    # Group by label_col for side-by-side text_col comparison
+    from itertools import groupby
+
+    print("\n" + "=" * 100)
+    print("COMPARISON TABLE: original_text vs normalized_text")
+    print("=" * 100)
+
+    # Organize: {(label_col, classifier): {text_col: metrics}}
+    grouped = {}
+    for entry in comparison_data:
+        key = (entry['label_col'], entry['classifier_key'])
+        if key not in grouped:
+            grouped[key] = {}
+        grouped[key][entry['text_col']] = entry['aggregate']
+
+    # Print per task
+    seen_labels = []
+    for (label_col, clf_key), text_results in sorted(grouped.items()):
+        if label_col not in seen_labels:
+            seen_labels.append(label_col)
+            task_name = LABEL_COL_DISPLAY.get(label_col, label_col)
+            print(f"\n  {'─'*90}")
+            print(f"  Task: {task_name} ({label_col})")
+            print(f"  {'─'*90}")
+            print(f"  {'Classifier':<22} │ {'Text Type':<28} │ "
+                  f"{'Acc':>7} {'M-Prec':>7} {'M-Rec':>7} {'M-F1':>7} {'W-F1':>7}")
+            print(f"  {'─'*22}─┼─{'─'*28}─┼─"
+                  f"{'─'*7}─{'─'*7}─{'─'*7}─{'─'*7}─{'─'*7}")
+
+        clf_display = CLASSIFIER_NAMES.get(clf_key, clf_key)
+
+        for text_col in args.text_cols:
+            text_display = TEXT_COL_DISPLAY.get(text_col, text_col)
+            if text_col in text_results:
+                m = text_results[text_col]
+                print(f"  {clf_display:<22} │ {text_display:<28} │ "
+                      f"{m['accuracy']:>7.4f} {m['macro_precision']:>7.4f} "
+                      f"{m['macro_recall']:>7.4f} {m['macro_f1']:>7.4f} "
+                      f"{m['weighted_f1']:>7.4f}")
+
+
+def print_delta_analysis(comparison_data: List[Dict]):
+    """Print the improvement/regression from normalization for each task+classifier"""
+    print("\n" + "=" * 100)
+    print("DELTA ANALYSIS: Normalized vs Original (Macro-F1 difference)")
+    print("=" * 100)
+
+    # Organize by (label_col, classifier)
+    grouped = {}
+    for entry in comparison_data:
+        key = (entry['label_col'], entry['classifier_key'])
+        if key not in grouped:
+            grouped[key] = {}
+        grouped[key][entry['text_col']] = entry['aggregate']
+
+    print(f"\n  {'Task':<28} {'Classifier':<22} "
+          f"{'Orig F1':>9} {'Norm F1':>9} {'Delta':>9} {'Change':>9}")
+    print(f"  {'─'*28} {'─'*22} {'─'*9} {'─'*9} {'─'*9} {'─'*9}")
+
+    task_deltas = {}  # label_col -> list of deltas
+
+    for (label_col, clf_key), text_results in sorted(grouped.items()):
+        task_name = LABEL_COL_DISPLAY.get(label_col, label_col)
+        clf_display = CLASSIFIER_NAMES.get(clf_key, clf_key)
+
+        orig_f1 = text_results.get('original_text', {}).get('macro_f1', None)
+        norm_f1 = text_results.get('normalized_text', {}).get('macro_f1', None)
+
+        if orig_f1 is not None and norm_f1 is not None:
+            delta = norm_f1 - orig_f1
+            pct = (delta / orig_f1 * 100) if orig_f1 > 0 else 0
+            sign = "+" if delta >= 0 else ""
+            print(f"  {task_name:<28} {clf_display:<22} "
+                  f"{orig_f1:>9.4f} {norm_f1:>9.4f} "
+                  f"{sign}{delta:>8.4f} {sign}{pct:>7.1f}%")
+
+            if label_col not in task_deltas:
+                task_deltas[label_col] = []
+            task_deltas[label_col].append(delta)
+
+    # Average delta per task
+    print(f"\n  {'─'*90}")
+    print(f"  Average F1 change per task (Normalized - Original):")
+    for label_col, deltas in task_deltas.items():
+        task_name = LABEL_COL_DISPLAY.get(label_col, label_col)
+        avg = np.mean(deltas)
+        sign = "+" if avg >= 0 else ""
+        print(f"    {task_name:<28}: {sign}{avg:.4f}")
+
+
+def print_best_per_task(comparison_data: List[Dict]):
+    """Print the best classifier + text combination per task"""
+    print("\n" + "=" * 100)
+    print("BEST CONFIGURATION PER TASK")
+    print("=" * 100)
+
+    # Group by label_col
+    by_task = {}
+    for entry in comparison_data:
+        lc = entry['label_col']
+        if lc not in by_task:
+            by_task[lc] = []
+        by_task[lc].append(entry)
+
+    print(f"\n  {'Task':<28} {'Best Classifier':<22} {'Text':<28} "
+          f"{'Macro-F1':>9} {'Accuracy':>9}")
+    print(f"  {'─'*28} {'─'*22} {'─'*28} {'─'*9} {'─'*9}")
+
+    for label_col in args.label_cols:
+        if label_col not in by_task:
+            continue
+        task_name = LABEL_COL_DISPLAY.get(label_col, label_col)
+        entries = by_task[label_col]
+        best = max(entries, key=lambda e: e['aggregate']['macro_f1'])
+        clf_display = CLASSIFIER_NAMES.get(best['classifier_key'], best['classifier_key'])
+        text_display = TEXT_COL_DISPLAY.get(best['text_col'], best['text_col'])
+        print(f"  {task_name:<28} {clf_display:<22} {text_display:<28} "
+              f"{best['aggregate']['macro_f1']:>9.4f} "
+              f"{best['aggregate']['accuracy']:>9.4f}")
+
+
+# ============================================================================
+# Post-training Prediction on crawled_clean.csv
+# ============================================================================
+
+def run_best_sentiment_prediction(comparison_data: List[Dict]):
+    """
+    1) Find the best experiment under sentiment_final by macro_f1
+    2) Re-train that model on full training data
+    3) Predict args.predict_input[args.predict_text_col]
+    4) Save Output_1 (raw 0/1/2) and Output_2 (mapped -1/0/1)
+    """
+    sentiment_entries = [
+        e for e in comparison_data
+        if e.get('label_col') == 'sentiment_final'
+    ]
+
+    if len(sentiment_entries) == 0:
+        print("\n[Prediction skipped] No sentiment_final experiment result found.")
+        return
+
+    # Selection criterion: F1 score (Macro-F1), NOT accuracy
+    best = max(sentiment_entries, key=lambda e: e['aggregate']['macro_f1'])
+    best_text_col = best['text_col']
+    best_clf_key = best['classifier_key']
+    best_clf_name = CLASSIFIER_NAMES.get(best_clf_key, best_clf_key)
+
+    print("\n" + "=" * 100)
+    print("POST-TRAINING PREDICTION ON EXTERNAL DATA")
+    print("=" * 100)
+    print(f"Best sentiment model: {best_clf_name}")
+    print(f"Training text column: {best_text_col}")
+    print(f"Best macro-F1: {best['aggregate']['macro_f1']:.4f}")
+
+    # Re-load full data for the selected best setup
+    train_texts, train_labels, label_names = load_data(
+        args.input, best_text_col, 'sentiment_final'
+    )
+    train_labels = np.array(train_labels)
+
+    # Build vectorizer with same configuration as CV
+    strip_val = None if args.strip_accents == 'none' else args.strip_accents
+    vectorizer = TfidfVectorizer(
+        max_features=args.max_features,
+        ngram_range=(args.ngram_min, args.ngram_max),
+        min_df=args.min_df,
+        max_df=args.max_df,
+        sublinear_tf=args.sublinear_tf,
+        use_idf=args.use_idf,
+        lowercase=args.lowercase,
+        strip_accents=strip_val,
+        token_pattern=r'(?u)\b\w+\b',
+    )
+
+    X_train = vectorizer.fit_transform(train_texts)
+    clf = get_classifier(best_clf_key, args.seed)
+
+    t0 = time.time()
+    clf.fit(X_train, train_labels)
+    fit_time = time.time() - t0
+    print(f"Re-trained on full sentiment dataset: {len(train_texts)} samples "
+          f"in {fit_time:.2f}s")
+
+    # Load prediction CSV
+    if not os.path.exists(args.predict_input):
+        print(f"[Prediction skipped] File not found: {args.predict_input}")
+        return
+
+    rows = []
+    with open(args.predict_input, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        if args.predict_text_col not in fieldnames:
+            raise ValueError(
+                f"Prediction text column '{args.predict_text_col}' not found. "
+                f"Available: {fieldnames}"
+            )
+        for row in reader:
+            rows.append(row)
+
+    # Predict non-empty texts only
+    non_empty_indices = []
+    predict_texts = []
+    for i, row in enumerate(rows):
+        txt = (row.get(args.predict_text_col) or '').strip()
+        if txt != '':
+            non_empty_indices.append(i)
+            predict_texts.append(txt)
+
+    output1 = ['' for _ in rows]
+    output2 = ['' for _ in rows]
+    pred_details = []
+
+    if len(predict_texts) > 0:
+        X_pred = vectorizer.transform(predict_texts)
+        y_pred = clf.predict(X_pred)
+
+        for idx, pred in zip(non_empty_indices, y_pred):
+            pred_int = int(pred)
+            output1[idx] = pred_int
+            output2[idx] = pred_int - 1
+
+    # Prediction distribution (three labels)
+    output1_int = [v for v in output1 if v != '']
+    dist_output1 = {str(k): 0 for k in [0, 1, 2]}
+    for k, v in Counter(output1_int).items():
+        dist_output1[str(int(k))] = int(v)
+
+    dist_output2 = {
+        '-1': dist_output1['0'],
+        '0':  dist_output1['1'],
+        '1':  dist_output1['2'],
+    }
+
+    # Save CSV with new columns
+    output_fields = list(rows[0].keys()) if len(rows) > 0 else []
+    if 'Output_1' not in output_fields:
+        output_fields.append('Output_1')
+    if 'Output_2' not in output_fields:
+        output_fields.append('Output_2')
+
+    with open(args.predict_output, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=output_fields)
+        writer.writeheader()
+        for i, row in enumerate(rows):
+            row['Output_1'] = output1[i]
+            row['Output_2'] = output2[i]
+            writer.writerow(row)
+
+            detail = {
+                'row_index': i,
+                'Output_1': output1[i],
+                'Output_2': output2[i],
+            }
+            if 'id' in row:
+                detail['id'] = row['id']
+            pred_details.append(detail)
+
+    # Save JSON with prediction details + distributions
+    total_predicted = len(output1_int)
+    json_payload = {
+        'selection_criterion': 'macro_f1',
+        'best_model': {
+            'label_task': 'sentiment_final',
+            'classifier_key': best_clf_key,
+            'classifier_name': best_clf_name,
+            'text_col': best_text_col,
+            'macro_f1': best['aggregate']['macro_f1'],
+            'accuracy': best['aggregate']['accuracy'],
+        },
+        'prediction_input': {
+            'file': args.predict_input,
+            'text_col': args.predict_text_col,
+            'total_rows': len(rows),
+            'predicted_rows': total_predicted,
+        },
+        'label_distribution': {
+            'Output_1': {
+                '0': dist_output1['0'],
+                '1': dist_output1['1'],
+                '2': dist_output1['2'],
+            },
+            'Output_2': {
+                '-1': dist_output2['-1'],
+                '0': dist_output2['0'],
+                '1': dist_output2['1'],
+            },
+        },
+        'predictions': pred_details,
+    }
+
+    with open(args.predict_json_output, 'w', encoding='utf-8') as f:
+        json.dump(json_payload, f, ensure_ascii=False, indent=2)
+
+    print(f"Prediction input:  {args.predict_input}")
+    print(f"Prediction output: {args.predict_output}")
+    print(f"Prediction json:   {args.predict_json_output}")
+    print(f"Predicted records: {len(predict_texts)}/{len(rows)}")
+    print("Output_1 distribution (0/1/2): "
+          f"0={dist_output1['0']}, 1={dist_output1['1']}, 2={dist_output1['2']}")
+    print("Output_2 distribution (-1/0/1): "
+          f"-1={dist_output2['-1']}, 0={dist_output2['0']}, 1={dist_output2['1']}")
+    print(f"Label order used by model: {label_names}")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
 def main():
-    print("=" * 70)
-    print("SC4021 - 5-Fold TF-IDF Classification")
-    print("=" * 70)
-    print(f"Input:       {args.input}")
-    print(f"Text col:    {args.text_col}")
-    print(f"Label col:   {args.label_col}")
-    print(f"Folds:       {args.n_folds}")
-    print(f"Classifiers: {args.classifiers}")
-    print(f"TF-IDF:      max_features={args.max_features}, "
+    print("=" * 100)
+    print("SC4021 - Preprocessed Data Classification & Comparison")
+    print("=" * 100)
+    print(f"Input:        {args.input}")
+    print(f"Text cols:    {args.text_cols}")
+    print(f"Label cols:   {args.label_cols}")
+    print(f"Folds:        {args.n_folds}")
+    print(f"Classifiers:  {args.classifiers}")
+    print(f"TF-IDF:       max_features={args.max_features}, "
           f"ngram=({args.ngram_min},{args.ngram_max}), "
           f"min_df={args.min_df}, max_df={args.max_df}")
+
+    total_experiments = len(args.text_cols) * len(args.label_cols) * len(args.classifiers)
+    print(f"\nTotal experiments: {total_experiments} "
+          f"({len(args.text_cols)} text x {len(args.label_cols)} label x "
+          f"{len(args.classifiers)} classifiers)")
     print()
 
-    # Load data
-    texts, labels, label_names = load_data(
-        args.input, args.text_col, args.label_col
-    )
-    print(f"\nLoaded: {len(texts)} samples")
-    print(f"Labels: {label_names}")
-    dist = Counter(labels)
-    for lbl_idx, name in enumerate(label_names):
-        print(f"  {name}: {dist.get(lbl_idx, 0)}")
-    labels = np.array(labels)
+    global_start_time = time.time()
 
-    # Run each classifier
-    all_results = {}
-    for clf_name in args.classifiers:
-        result = run_5fold(texts, labels, label_names, clf_name)
-        all_results[clf_name] = result
+    # Pre-load data for each (text_col, label_col) combination
+    data_cache = {}
+    for text_col in args.text_cols:
+        for label_col in args.label_cols:
+            key = (text_col, label_col)
+            try:
+                texts, labels_int, label_names = load_data(
+                    args.input, text_col, label_col
+                )
+                labels = np.array(labels_int)
+                dist = Counter(labels_int)
+                data_cache[key] = {
+                    'texts': texts,
+                    'labels': labels,
+                    'label_names': label_names,
+                    'dist': dist,
+                }
+                print(f"  Loaded [{text_col}] x [{label_col}]: "
+                      f"{len(texts)} samples, "
+                      f"labels={label_names}")
+            except Exception as e:
+                print(f"  ERROR loading [{text_col}] x [{label_col}]: {e}")
 
     # ============================================================
-    # Summary Table
+    # Run all experiments
     # ============================================================
-    print("\n" + "=" * 70)
-    print("SUMMARY - All Classifiers")
-    print("=" * 70)
-    print(f"{'Classifier':<25} {'Accuracy':>9} {'Macro-F1':>9} "
-          f"{'W-F1':>9} {'Speed':>12}")
-    print("-" * 70)
-    best_f1 = -1
-    best_clf = ""
-    for clf_name in args.classifiers:
-        r = all_results[clf_name]
-        agg = r['aggregate']
-        spd = r['performance']['records_per_second']
-        print(f"{r['classifier']:<25} {agg['accuracy']:>9.4f} "
-              f"{agg['macro_f1']:>9.4f} {agg['weighted_f1']:>9.4f} "
-              f"{spd:>9.0f} rec/s")
-        if agg['macro_f1'] > best_f1:
-            best_f1 = agg['macro_f1']
-            best_clf = r['classifier']
+    comparison_data = []
+    all_experiment_results = {}
+    experiment_idx = 0
 
-    print(f"\nBest: {best_clf} (Macro-F1 = {best_f1:.4f})")
+    for label_col in args.label_cols:
+        task_name = LABEL_COL_DISPLAY.get(label_col, label_col)
+
+        print(f"\n{'#'*100}")
+        print(f"# TASK: {task_name}")
+        print(f"{'#'*100}")
+
+        for text_col in args.text_cols:
+            text_display = TEXT_COL_DISPLAY.get(text_col, text_col)
+            key = (text_col, label_col)
+
+            if key not in data_cache:
+                print(f"\n  [SKIP] No data for {text_col} x {label_col}")
+                continue
+
+            data = data_cache[key]
+            texts = data['texts']
+            labels = data['labels']
+            label_names = data['label_names']
+            dist = data['dist']
+
+            print(f"\n  {'='*90}")
+            print(f"  Text: {text_display} ({text_col})")
+            print(f"  Samples: {len(texts)}, Labels: {label_names}")
+            dist_str = ", ".join(f"{label_names[k]}={v}"
+                                for k, v in sorted(dist.items()))
+            print(f"  Distribution: {dist_str}")
+            print(f"  {'='*90}")
+
+            for clf_name in args.classifiers:
+                experiment_idx += 1
+                clf_display = CLASSIFIER_NAMES.get(clf_name, clf_name)
+
+                elapsed = time.time() - global_start_time
+                print(f"\n  [{experiment_idx}/{total_experiments}] "
+                      f"{clf_display} | {text_display} | {task_name} "
+                      f"(elapsed: {elapsed:.1f}s)")
+
+                try:
+                    result = run_5fold(
+                        texts, labels, label_names, clf_name, verbose=True
+                    )
+
+                    # Print summary
+                    print(f"\n    --- Aggregate ({args.n_folds}-Fold) ---")
+                    print_experiment_result(result, label_names)
+
+                    # Store
+                    exp_key = f"{text_col}__{label_col}__{clf_name}"
+                    all_experiment_results[exp_key] = result
+
+                    comparison_entry = {
+                        'text_col': text_col,
+                        'label_col': label_col,
+                        'classifier_key': clf_name,
+                        'classifier': clf_display,
+                        'label_names': label_names,
+                        'aggregate': result['aggregate'],
+                        'performance': result['performance'],
+                    }
+                    comparison_data.append(comparison_entry)
+
+                except Exception as e:
+                    import traceback
+                    print(f"\n    [ERROR in {clf_display}] {type(e).__name__}: {e}")
+                    traceback.print_exc()
+
+    # ============================================================
+    # Comparison outputs
+    # ============================================================
+    if len(comparison_data) > 0:
+        print_comparison_table(comparison_data)
+        print_delta_analysis(comparison_data)
+        print_best_per_task(comparison_data)
+
+    # ============================================================
+    # Per-task summary tables
+    # ============================================================
+    print("\n" + "=" * 100)
+    print("PER-TASK CLASSIFIER RANKING (by Macro-F1)")
+    print("=" * 100)
+
+    by_task = {}
+    for entry in comparison_data:
+        lc = entry['label_col']
+        if lc not in by_task:
+            by_task[lc] = []
+        by_task[lc].append(entry)
+
+    for label_col in args.label_cols:
+        if label_col not in by_task:
+            continue
+        task_name = LABEL_COL_DISPLAY.get(label_col, label_col)
+        entries = sorted(by_task[label_col],
+                         key=lambda e: e['aggregate']['macro_f1'],
+                         reverse=True)
+
+        print(f"\n  Task: {task_name}")
+        print(f"  {'Rank':<5} {'Classifier':<22} {'Text':<28} "
+              f"{'Acc':>7} {'M-F1':>7} {'W-F1':>7} {'Speed':>10}")
+        print(f"  {'─'*5} {'─'*22} {'─'*28} {'─'*7} {'─'*7} {'─'*7} {'─'*10}")
+
+        for rank, entry in enumerate(entries, 1):
+            clf_d = CLASSIFIER_NAMES.get(entry['classifier_key'], entry['classifier_key'])
+            txt_d = TEXT_COL_DISPLAY.get(entry['text_col'], entry['text_col'])
+            m = entry['aggregate']
+            spd = entry['performance']['records_per_second']
+            print(f"  {rank:<5} {clf_d:<22} {txt_d:<28} "
+                  f"{m['accuracy']:>7.4f} {m['macro_f1']:>7.4f} "
+                  f"{m['weighted_f1']:>7.4f} {spd:>7.0f}r/s")
 
     # ============================================================
     # Save Report
     # ============================================================
-    report_path = args.output_report
-    if report_path is None:
-        base = os.path.splitext(os.path.basename(args.input))[0]
-        report_path = f"classification_report_{base}_{args.text_col}_{args.label_col}.json"
-
     report = {
         'config': {
             'input': args.input,
-            'text_col': args.text_col,
-            'label_col': args.label_col,
+            'text_cols': args.text_cols,
+            'label_cols': args.label_cols,
+            'classifiers': args.classifiers,
             'n_folds': args.n_folds,
             'max_features': args.max_features,
             'ngram_range': [args.ngram_min, args.ngram_max],
             'min_df': args.min_df,
             'max_df': args.max_df,
             'seed': args.seed,
-            'num_samples': len(texts),
-            'label_names': label_names,
-            'label_distribution': {
-                label_names[k]: v for k, v in sorted(dist.items())
-            },
         },
-        'results': all_results,
-        'best_classifier': best_clf,
-        'best_macro_f1': best_f1,
+        'data_summary': {
+            f"{tc}__{lc}": {
+                'num_samples': len(data_cache[(tc, lc)]['texts']),
+                'label_names': data_cache[(tc, lc)]['label_names'],
+                'label_distribution': {
+                    data_cache[(tc, lc)]['label_names'][k]: v
+                    for k, v in sorted(data_cache[(tc, lc)]['dist'].items())
+                },
+            }
+            for tc in args.text_cols
+            for lc in args.label_cols
+            if (tc, lc) in data_cache
+        },
+        'experiments': {
+            k: v for k, v in all_experiment_results.items()
+        },
+        'comparison': comparison_data,
+        'best_per_task': {},
     }
 
+    # Best per task
+    for label_col in args.label_cols:
+        if label_col not in by_task:
+            continue
+        entries = by_task[label_col]
+        best = max(entries, key=lambda e: e['aggregate']['macro_f1'])
+        report['best_per_task'][label_col] = {
+            'task': LABEL_COL_DISPLAY.get(label_col, label_col),
+            'best_classifier': best['classifier'],
+            'best_text_col': best['text_col'],
+            'macro_f1': best['aggregate']['macro_f1'],
+            'accuracy': best['aggregate']['accuracy'],
+        }
+
+    total_elapsed = time.time() - global_start_time
+    report_path = args.output_report
     with open(report_path, 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"\nReport saved to: {report_path}")
+
+    # ============================================================
+    # Post-training prediction (best sentiment model)
+    # ============================================================
+    if not args.skip_prediction:
+        run_best_sentiment_prediction(comparison_data)
+
+    print(f"\n\nReport saved to: {report_path}")
+    print(f"Total time: {total_elapsed:.1f}s")
     print("Done!")
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n[Interrupted by user]")
+    except Exception as e:
+        import traceback
+        print(f"\n\n[ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+        sys.exit(1)
