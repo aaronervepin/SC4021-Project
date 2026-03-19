@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reddit Opinion Search</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        input[type=text] { width: 70%; padding: 10px; font-size: 16px; }
+        button { padding: 10px 20px; font-size: 16px; background-color: #ff4500; color: white; border: none; cursor: pointer; }
+        .result { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .meta { color: grey; font-size: 13px; }
+        .stats { color: grey; margin: 10px 0; }
+        .pagination { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
+        .pagination a { padding: 8px 16px; background: #ff4500; color: white; text-decoration: none; border-radius: 4px; }
+        .pagination span { color: grey; }
+    </style>
+</head>
+<body>
+    <h1>Reddit Opinion Search</h1>
+    <form method="get">
+        <input type="text" name="q" value="{{ query }}" placeholder="e.g. A level math difficult">
+        <button type="submit">Search</button>
+    </form>
+
+    {% if query %}
+    <p class="stats">Found {{ num_found }} results in {{ qtime }}ms</p>
+    {% endif %}
+
+    {% for result in results %}
+    <div class="result">
+        <h3>{{ result.title }}</h3>
+        <p>{{ result.body|truncatechars:300 }}</p>
+        <p class="meta">
+            r/{{ result.subreddit }} | 
+            u/{{ result.author }} | 
+            Score: {{ result.score }} |
+            <a href="{{ result.url }}" target="_blank">View on Reddit</a>
+        </p>
+    </div>
+    {% empty %}
+    {% if query %}<p>No results found.</p>{% endif %}
+    {% endfor %}
+
+    {% if num_pages > 1 %}
+    <div class="pagination">
+        {% if prev_page %}<a href="?q={{ query }}&page={{ prev_page }}">← Previous</a>{% endif %}
+        <span>Page {{ page }} of {{ num_pages }}</span>
+        {% if next_page %}<a href="?q={{ query }}&page={{ next_page }}">Next →</a>{% endif %}
+    </div>
+    {% endif %}
+
+</body>
+</html>
