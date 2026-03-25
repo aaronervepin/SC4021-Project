@@ -23,12 +23,14 @@ LABEL_COL_DISPLAY = {
     'sentiment_final':    'Sentiment (3-class)',
     'sarcasm_final':      'Sarcasm (binary)',
     'subjectivity_final': 'Subjectivity (binary)',
-    'emotion_final':      'Emotion (7-class)',
 }
 
+# NOTE: In the CSV, columns are swapped:
+#   original_text   -> actually Normalized (Std English)
+#   normalized_text -> actually Original (Singlish)
 TEXT_COL_DISPLAY = {
-    'original_text':   'Original (Singlish)',
-    'normalized_text': 'Normalized (Std English)',
+    'original_text':   'Normalized (Std English)',
+    'normalized_text': 'Original (Singlish)',
 }
 
 CLASSIFIER_NAMES = {
@@ -76,7 +78,7 @@ def parse_args():
                         help='Text columns to compare')
     parser.add_argument('--label_cols', type=str, nargs='+',
                         default=['sentiment_final', 'sarcasm_final',
-                                 'subjectivity_final', 'emotion_final'],
+                                 'subjectivity_final'],
                         help='Label columns to evaluate')
 
     # TF-IDF parameters

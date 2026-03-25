@@ -8,14 +8,21 @@ from typing import List, Tuple
 from sklearn.preprocessing import LabelEncoder
 
 
+
+# Labels to exclude per task
+EXCLUDE_LABELS = {}
+
+
 def load_data(filepath: str, text_col: str, label_col: str
               ) -> Tuple[List[str], np.ndarray, List[str]]:
     """
     Load CSV and extract text + labels.
+    Automatically excludes configured labels (e.g., emotion neutral).
     Returns: (texts, labels_int, label_names)
     """
     texts = []
     raw_labels = []
+    excluded = EXCLUDE_LABELS.get(label_col, set())
 
     with open(filepath, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -34,8 +41,15 @@ def load_data(filepath: str, text_col: str, label_col: str
             text = row[text_col]
             label = row[label_col]
             if text and label != '':
+                label_str = str(label).strip()
+                if label_str in excluded:
+                    continue
                 texts.append(text.strip())
-                raw_labels.append(str(label).strip())
+                raw_labels.append(label_str)
+
+    if excluded:
+        print(f"    [Filter] Excluded labels {excluded} from {label_col}, "
+              f"kept {len(texts)} samples")
 
     le = LabelEncoder()
     labels_int = le.fit_transform(raw_labels)
