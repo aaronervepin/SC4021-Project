@@ -12,6 +12,17 @@
         .pagination { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
         .pagination a { padding: 8px 16px; background: #ff4500; color: white; text-decoration: none; border-radius: 4px; }
         .pagination span { color: grey; }
+
+        .sentiment-box { margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9; }
+        .sentiment-box h3 { margin: 0 0 10px 0; font-size: 15px; color: #333; }
+        .sentiment-bar { display: flex; height: 30px; border-radius: 5px; overflow: hidden; margin-bottom: 10px; }
+        .bar-positive { background: #2ecc71; }
+        .bar-neutral { background: #bdc3c7; }
+        .bar-negative { background: #e74c3c; }
+        .sentiment-labels { display: flex; gap: 20px; font-size: 13px; }
+        .label-positive { color: #2ecc71; font-weight: bold; }
+        .label-neutral { color: #95a5a6; font-weight: bold; }
+        .label-negative { color: #e74c3c; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -23,6 +34,22 @@
 
     {% if query %}
     <p class="stats">Found {{ num_found }} results in {{ qtime }}ms</p>
+    {% endif %}
+
+    {% if sentiment %}
+    <div class="sentiment-box">
+        <h3>Sentiment Analysis for "{{ query }}" (based on {{ sentiment.total }} opinions)</h3>
+        <div class="sentiment-bar">
+            <div class="bar-positive" style="width: {{ sentiment.positive }}%"></div>
+            <div class="bar-neutral" style="width: {{ sentiment.neutral }}%"></div>
+            <div class="bar-negative" style="width: {{ sentiment.negative }}%"></div>
+        </div>
+        <div class="sentiment-labels">
+            <span class="label-positive">Positive: {{ sentiment.positive }}%</span>
+            <span class="label-neutral">Neutral: {{ sentiment.neutral }}%</span>
+            <span class="label-negative">Negative: {{ sentiment.negative }}%</span>
+        </div>
+    </div>
     {% endif %}
 
     {% for result in results %}
