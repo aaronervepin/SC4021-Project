@@ -38,6 +38,7 @@ from classification.visualization import (
     generate_all_visualizations, plot_ablation_study
 )
 from classification.innovations import run_ablation_study
+from classification.preprocessing import run_preprocessing_report
 
 
 def main():
@@ -62,6 +63,11 @@ def main():
     print()
 
     global_start_time = time.time()
+
+    # ================================================================
+    # Q4: Data Preprocessing & Statistics
+    # ================================================================
+    preprocess_stats = run_preprocessing_report(args.input)
 
     # ================================================================
     # Pre-load data

@@ -1,22 +1,25 @@
 """
 Q5 Innovations for enhancing sentiment classification.
 
-Innovations implemented (with ablation study):
-1. Hybrid classification: TF-IDF (subsymbolic) + VADER lexicon features (symbolic)
-2. Enhanced classification: Sarcasm-aware sentiment correction
-3. Ensemble classification: Stacked ensemble (LR + NB + RF -> LR)
+Ablation study with progressive innovations:
+A. Baseline:    BoW (CountVectorizer) + Multinomial Naive Bayes  (most primitive)
+B. Innovation 1: TF-IDF + Linear SVM                            (improved representation + classifier)
+C. Innovation 2: TF-IDF + SVM + Hybrid features (VADER + stats) (symbolic + subsymbolic)
+D. Innovation 3: TF-IDF + SVM + Hybrid + Sarcasm features       (enhanced classification)
+E. Innovation 4: Full hybrid + Stacked Ensemble                  (ensemble classification)
 
-Ablation study shows the incremental contribution of each innovation.
+Shows the incremental contribution of each innovation via ablation.
 """
 
 import re
 import time
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from collections import Counter
 
 from scipy.sparse import hstack, csr_matrix
 from sklearn.model_selection import StratifiedKFold
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
 from sklearn.naive_bayes import MultinomialNB
@@ -26,9 +29,7 @@ from sklearn.metrics import (
     classification_report, confusion_matrix
 )
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.base import clone
 
-from .config import CLASSIFIER_NAMES
 from .models import build_tfidf_vectorizer
 
 
@@ -56,10 +57,7 @@ def extract_hybrid_features(texts: List[str]) -> np.ndarray:
 
     features = []
     for text in texts:
-        # VADER scores (knowledge-based sentiment lexicon)
         vs = sid.polarity_scores(text)
-
-        # Text statistics (rule-based features)
         words = text.split()
         word_count = len(words)
         char_count = len(text)
@@ -69,37 +67,35 @@ def extract_hybrid_features(texts: List[str]) -> np.ndarray:
         ques_count = text.count('?')
         caps_ratio = sum(1 for c in text if c.isupper()) / max(char_count, 1)
 
-        # Simple emoji/emoticon pattern count
-        emoji_pattern = re.compile(r'[:;][-(]?[)D(P/\\|]|[<>]3|[\U0001F600-\U0001F64F]', re.UNICODE)
+        emoji_pattern = re.compile(
+            r'[:;][-(]?[)D(P/\\|]|[<>]3|[\U0001F600-\U0001F64F]', re.UNICODE
+        )
         emoji_count = len(emoji_pattern.findall(text))
 
-        # Negation word count (rule-based)
         negation_words = {'not', 'no', 'never', 'neither', 'nobody', 'nothing',
                           "n't", 'cant', 'cannot', 'wont', 'dont', 'doesnt',
                           'isnt', 'arent', 'wasnt', 'werent', 'havent', 'hasnt'}
         neg_count = sum(1 for w in words if w.lower().strip("'\".,!?") in negation_words)
 
         features.append([
-            vs['neg'], vs['neu'], vs['pos'], vs['compound'],  # VADER (4)
-            char_count, word_count, avg_word_len,               # text stats (3)
-            excl_count, ques_count, caps_ratio,                 # punctuation/style (3)
-            emoji_count, neg_count,                             # emoji + negation (2)
+            vs['neg'], vs['neu'], vs['pos'], vs['compound'],
+            char_count, word_count, avg_word_len,
+            excl_count, ques_count, caps_ratio,
+            emoji_count, neg_count,
         ])
 
     return np.array(features, dtype=np.float64)
 
 
 # ============================================================================
-# Sarcasm-aware sentiment: use sarcasm signal to adjust predictions
+# Sarcasm-aware features (Enhanced classification)
 # ============================================================================
 
 def extract_sarcasm_features(texts: List[str]) -> np.ndarray:
     """
     Extract sarcasm-indicative features:
-    - Contrast indicators (e.g., "but", "however", "although")
-    - Hyperbole markers (e.g., "totally", "absolutely", "literally")
-    - Quote marks (often used in sarcasm)
-    - Mixed sentiment signal (positive VADER but negative keywords or vice versa)
+    - Contrast indicators, hyperbole markers, Singlish sarcasm markers
+    - Punctuation patterns, sentiment contrast, Reddit /s tag
     """
     sid = _get_vader()
 
@@ -109,7 +105,6 @@ def extract_sarcasm_features(texts: List[str]) -> np.ndarray:
                        'clearly', 'definitely', 'surely', 'completely',
                        'utterly', 'perfectly', 'amazing', 'incredible',
                        'brilliant', 'genius', 'wonderful'}
-    # Singlish sarcasm markers
     sg_sarcasm = {'right', 'sure', 'wow', 'wah', 'yah', 'lor', 'meh', 'hor'}
 
     features = []
@@ -117,58 +112,45 @@ def extract_sarcasm_features(texts: List[str]) -> np.ndarray:
         words = [w.lower().strip("'\".,!?") for w in text.split()]
         vs = sid.polarity_scores(text)
 
-        contrast_count = sum(1 for w in words if w in contrast_words)
-        hyperbole_count = sum(1 for w in words if w in hyperbole_words)
-        sg_sarcasm_count = sum(1 for w in words if w in sg_sarcasm)
-        quote_count = text.count('"') + text.count("'") // 2
-        ellipsis_count = text.count('...')
-
-        # Mixed sentiment signal: high positive VADER but contains negative words
-        # or high negative VADER but contains positive words
-        sentiment_contrast = abs(vs['pos'] - vs['neg'])
-
-        # /s sarcasm tag (Reddit convention)
-        has_s_tag = 1.0 if '/s' in text.lower() else 0.0
-
         features.append([
-            contrast_count,
-            hyperbole_count,
-            sg_sarcasm_count,
-            quote_count,
-            ellipsis_count,
-            sentiment_contrast,
-            has_s_tag,
+            sum(1 for w in words if w in contrast_words),
+            sum(1 for w in words if w in hyperbole_words),
+            sum(1 for w in words if w in sg_sarcasm),
+            text.count('"') + text.count("'") // 2,
+            text.count('...'),
+            abs(vs['pos'] - vs['neg']),
+            1.0 if '/s' in text.lower() else 0.0,
         ])
 
     return np.array(features, dtype=np.float64)
 
 
 # ============================================================================
-# Core ablation experiment runner
+# Core CV runner supporting all configurations
 # ============================================================================
 
-def _run_cv_with_features(
+def _run_cv_experiment(
     texts: List[str],
     labels: np.ndarray,
     label_names: List[str],
     args,
+    vectorizer_type: str = 'tfidf',   # 'bow' or 'tfidf'
+    classifier_type: str = 'svm',      # 'nb' or 'svm'
     use_hybrid: bool = False,
     use_sarcasm: bool = False,
     use_ensemble: bool = False,
     config_name: str = "Baseline",
 ) -> Dict:
     """
-    Run 5-fold CV with optional feature augmentation and ensemble.
+    Run 5-fold CV with configurable vectorizer, classifier, and feature augmentation.
     """
     skf = StratifiedKFold(
         n_splits=args.n_folds, shuffle=True, random_state=args.seed
     )
 
-    # Pre-compute extra features if needed (outside fold loop for consistency)
     hybrid_feats = extract_hybrid_features(texts) if use_hybrid else None
     sarcasm_feats = extract_sarcasm_features(texts) if use_sarcasm else None
 
-    fold_results = []
     all_y_true = []
     all_y_pred = []
     total_train_time = 0
@@ -181,8 +163,19 @@ def _run_cv_with_features(
         y_train = labels[train_idx]
         y_test = labels[test_idx]
 
-        # TF-IDF base features
-        vectorizer = build_tfidf_vectorizer(args)
+        # Build vectorizer
+        if vectorizer_type == 'bow':
+            vectorizer = CountVectorizer(
+                max_features=args.max_features,
+                ngram_range=(1, 1),  # unigrams only for primitive baseline
+                min_df=args.min_df,
+                max_df=args.max_df,
+                lowercase=True,
+                token_pattern=r'(?u)\b\w+\b',
+            )
+        else:
+            vectorizer = build_tfidf_vectorizer(args)
+
         X_train = vectorizer.fit_transform(train_texts)
         X_test = vectorizer.transform(test_texts)
 
@@ -210,8 +203,6 @@ def _run_cv_with_features(
 
         # Select classifier
         if use_ensemble:
-            # Use non-negative features for NB compatibility
-            # NB needs non-negative, so clip
             X_train_nn = X_train.copy()
             X_test_nn = X_test.copy()
             X_train_nn[X_train_nn < 0] = 0
@@ -229,13 +220,13 @@ def _run_cv_with_features(
                 final_estimator=LogisticRegression(max_iter=500, random_state=args.seed),
                 cv=3, n_jobs=-1,
             )
-            # For stacking with NB, we need non-negative input
-            X_train_use = X_train_nn
-            X_test_use = X_test_nn
+            X_train_use, X_test_use = X_train_nn, X_test_nn
+        elif classifier_type == 'nb':
+            clf = MultinomialNB(alpha=0.1)
+            X_train_use, X_test_use = X_train, X_test
         else:
             clf = LinearSVC(max_iter=2000, C=1.0, random_state=args.seed)
-            X_train_use = X_train
-            X_test_use = X_test
+            X_train_use, X_test_use = X_train, X_test
 
         t0 = time.time()
         clf.fit(X_train_use, y_train)
@@ -313,38 +304,43 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
     """
     Ablation study for Q5 innovations on sentiment classification.
 
-    Configurations (incremental):
-    A. Baseline: TF-IDF + Linear SVM
-    B. + Hybrid features (VADER + text stats)         [Innovation 1: Hybrid]
-    C. + Sarcasm features                             [Innovation 2: Enhanced]
-    D. + Hybrid + Sarcasm features combined
-    E. + Hybrid + Sarcasm + Stacked Ensemble          [Innovation 3: Ensemble]
+    Progressive configurations:
+    A. Baseline:      BoW + Naive Bayes (most primitive ML approach)
+    B. Innovation 1:  TF-IDF + Linear SVM (improved representation + classifier)
+    C. Innovation 2:  TF-IDF + SVM + Hybrid features (symbolic + subsymbolic)
+    D. Innovation 3:  TF-IDF + SVM + Hybrid + Sarcasm (enhanced classification)
+    E. Innovation 4:  Full features + Stacked Ensemble (ensemble classification)
 
     Returns dict of {config_name: metrics}.
     """
     print("\n" + "#" * 100)
-    print("# Q5 INNOVATIONS: HYBRID + SARCASM-AWARE + ENSEMBLE (ABLATION STUDY)")
+    print("# Q5 INNOVATIONS: ABLATION STUDY (BoW+NB -> TF-IDF+SVM -> Hybrid -> Ensemble)")
     print("#" * 100)
 
     ablation_configs = [
         {
-            'name': 'A. Baseline (TF-IDF + SVM)',
+            'name': 'A. Baseline (BoW + NB)',
+            'vectorizer_type': 'bow', 'classifier_type': 'nb',
             'use_hybrid': False, 'use_sarcasm': False, 'use_ensemble': False,
         },
         {
-            'name': 'B. + Hybrid (VADER+Stats)',
+            'name': 'B. TF-IDF + SVM',
+            'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
+            'use_hybrid': False, 'use_sarcasm': False, 'use_ensemble': False,
+        },
+        {
+            'name': 'C. + Hybrid (VADER+Stats)',
+            'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
             'use_hybrid': True, 'use_sarcasm': False, 'use_ensemble': False,
         },
         {
-            'name': 'C. + Sarcasm Features',
-            'use_hybrid': False, 'use_sarcasm': True, 'use_ensemble': False,
-        },
-        {
             'name': 'D. + Hybrid + Sarcasm',
+            'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
             'use_hybrid': True, 'use_sarcasm': True, 'use_ensemble': False,
         },
         {
             'name': 'E. + Hybrid + Sarcasm + Ensemble',
+            'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
             'use_hybrid': True, 'use_sarcasm': True, 'use_ensemble': True,
         },
     ]
@@ -357,8 +353,10 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
         print(f"  [Ablation] {name}")
         print(f"  {'='*90}")
 
-        result = _run_cv_with_features(
+        result = _run_cv_experiment(
             texts, labels, label_names, args,
+            vectorizer_type=config['vectorizer_type'],
+            classifier_type=config['classifier_type'],
             use_hybrid=config['use_hybrid'],
             use_sarcasm=config['use_sarcasm'],
             use_ensemble=config['use_ensemble'],
@@ -382,9 +380,9 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
     print("\n" + "=" * 100)
     print("ABLATION STUDY RESULTS (Sentiment 3-class)")
     print("=" * 100)
-    print(f"\n  {'Configuration':<40} {'Acc':>8} {'M-Prec':>8} {'M-Rec':>8} "
+    print(f"\n  {'Configuration':<42} {'Acc':>8} {'M-Prec':>8} {'M-Rec':>8} "
           f"{'M-F1':>8} {'W-F1':>8} {'Delta':>8}")
-    print(f"  {'─'*40} {'─'*8} {'─'*8} {'─'*8} {'─'*8} {'─'*8} {'─'*8}")
+    print(f"  {'─'*42} {'─'*8} {'─'*8} {'─'*8} {'─'*8} {'─'*8} {'─'*8}")
 
     baseline_f1 = ablation_results[ablation_configs[0]['name']]['macro_f1']
 
@@ -394,7 +392,7 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
         delta = m['macro_f1'] - baseline_f1
         sign = "+" if delta >= 0 else ""
         delta_str = f"{sign}{delta:.4f}" if name != ablation_configs[0]['name'] else "  base"
-        print(f"  {name:<40} "
+        print(f"  {name:<42} "
               f"{m['accuracy']:>8.4f} "
               f"{m['macro_precision']:>8.4f} "
               f"{m['macro_recall']:>8.4f} "
@@ -402,7 +400,6 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
               f"{m['weighted_f1']:>8.4f} "
               f"{delta_str:>8}")
 
-    # Best config
     best_name = max(ablation_results, key=lambda k: ablation_results[k]['macro_f1'])
     best_f1 = ablation_results[best_name]['macro_f1']
     total_gain = best_f1 - baseline_f1
