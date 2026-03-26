@@ -4,9 +4,10 @@ Q5 Innovations for enhancing sentiment classification.
 Ablation study with progressive innovations:
 A. Baseline:    BoW (CountVectorizer) + Multinomial Naive Bayes  (most primitive)
 B. Innovation 1: TF-IDF + Linear SVM                            (improved representation + classifier)
-C. Innovation 2: TF-IDF + SVM + Hybrid features (VADER + stats) (symbolic + subsymbolic)
-D. Innovation 3: TF-IDF + SVM + Hybrid + Sarcasm features       (enhanced classification)
-E. Innovation 4: Full hybrid + Stacked Ensemble                  (ensemble classification)
+C. Innovation 2: + NLP Preprocessing (lemmatization + stopword removal + POS features)
+D. Innovation 3: + Hybrid features (VADER + stats)              (symbolic + subsymbolic)
+E. Innovation 4: + Sarcasm features                             (enhanced classification)
+F. Innovation 5: Full features + Stacked Ensemble               (ensemble classification)
 
 Shows the incremental contribution of each innovation via ablation.
 """
@@ -126,6 +127,86 @@ def extract_sarcasm_features(texts: List[str]) -> np.ndarray:
 
 
 # ============================================================================
+# NLP Preprocessing: Lemmatization + Stopword Removal
+# ============================================================================
+
+def _get_nlp_tools():
+    """Lazy-load NLTK NLP tools."""
+    import nltk
+    for res in ['wordnet', 'averaged_perceptron_tagger_eng', 'stopwords', 'punkt_tab']:
+        nltk.download(res, quiet=True)
+    from nltk.stem import WordNetLemmatizer
+    from nltk.corpus import stopwords
+    return WordNetLemmatizer(), set(stopwords.words('english'))
+
+
+def preprocess_texts_nlp(texts: List[str]) -> List[str]:
+    """
+    Apply NLP-based preprocessing:
+    1. Tokenize
+    2. Remove stopwords
+    3. Lemmatize remaining words
+    Returns cleaned text list.
+    """
+    import nltk
+    lemmatizer, stop_words = _get_nlp_tools()
+
+    processed = []
+    for text in texts:
+        tokens = nltk.word_tokenize(text.lower())
+        # Remove stopwords and non-alphabetic tokens
+        tokens = [lemmatizer.lemmatize(w) for w in tokens
+                  if w.isalpha() and w not in stop_words]
+        processed.append(' '.join(tokens))
+    return processed
+
+
+# ============================================================================
+# POS-tag based features (linguistic structure features)
+# ============================================================================
+
+def extract_pos_features(texts: List[str]) -> np.ndarray:
+    """
+    Extract POS-tag distribution features:
+    - Adjective ratio (JJ/JJR/JJS): sentiment-bearing words
+    - Adverb ratio (RB/RBR/RBS): intensity modifiers
+    - Verb ratio (VB*): action/state indicators
+    - Noun ratio (NN*): topic/entity words
+    - Pronoun ratio (PRP*): subjectivity indicator (1st person = opinionated)
+    - Interjection count (UH): emotional exclamations
+    """
+    import nltk
+
+    features = []
+    for text in texts:
+        tokens = nltk.word_tokenize(text)
+        if not tokens:
+            features.append([0.0] * 6)
+            continue
+
+        tagged = nltk.pos_tag(tokens)
+        n = len(tagged)
+
+        adj_count = sum(1 for _, t in tagged if t.startswith('JJ'))
+        adv_count = sum(1 for _, t in tagged if t.startswith('RB'))
+        verb_count = sum(1 for _, t in tagged if t.startswith('VB'))
+        noun_count = sum(1 for _, t in tagged if t.startswith('NN'))
+        pron_count = sum(1 for _, t in tagged if t.startswith('PRP'))
+        intj_count = sum(1 for _, t in tagged if t == 'UH')
+
+        features.append([
+            adj_count / n,
+            adv_count / n,
+            verb_count / n,
+            noun_count / n,
+            pron_count / n,
+            intj_count,
+        ])
+
+    return np.array(features, dtype=np.float64)
+
+
+# ============================================================================
 # Core CV runner supporting all configurations
 # ============================================================================
 
@@ -136,6 +217,8 @@ def _run_cv_experiment(
     args,
     vectorizer_type: str = 'tfidf',   # 'bow' or 'tfidf'
     classifier_type: str = 'svm',      # 'nb' or 'svm'
+    use_nlp_preprocess: bool = False,
+    use_pos_features: bool = False,
     use_hybrid: bool = False,
     use_sarcasm: bool = False,
     use_ensemble: bool = False,
@@ -148,8 +231,16 @@ def _run_cv_experiment(
         n_splits=args.n_folds, shuffle=True, random_state=args.seed
     )
 
+    # Apply NLP preprocessing if requested (lemmatization + stopword removal)
+    texts_for_vectorizer = texts
+    if use_nlp_preprocess:
+        print(f"    Applying NLP preprocessing (lemmatization + stopword removal)...")
+        texts_for_vectorizer = preprocess_texts_nlp(texts)
+
+    # Pre-compute extra features
     hybrid_feats = extract_hybrid_features(texts) if use_hybrid else None
     sarcasm_feats = extract_sarcasm_features(texts) if use_sarcasm else None
+    pos_feats = extract_pos_features(texts) if use_pos_features else None
 
     all_y_true = []
     all_y_pred = []
@@ -158,8 +249,8 @@ def _run_cv_experiment(
     total_predict_samples = 0
 
     for fold_idx, (train_idx, test_idx) in enumerate(skf.split(texts, labels)):
-        train_texts = [texts[i] for i in train_idx]
-        test_texts = [texts[i] for i in test_idx]
+        train_texts = [texts_for_vectorizer[i] for i in train_idx]
+        test_texts = [texts_for_vectorizer[i] for i in test_idx]
         y_train = labels[train_idx]
         y_test = labels[test_idx]
 
@@ -180,7 +271,7 @@ def _run_cv_experiment(
         X_test = vectorizer.transform(test_texts)
 
         # Augment with extra features
-        if use_hybrid or use_sarcasm:
+        if use_hybrid or use_sarcasm or use_pos_features:
             extra_train_parts = []
             extra_test_parts = []
 
@@ -190,6 +281,13 @@ def _run_cv_experiment(
                 h_test = scaler_h.transform(hybrid_feats[test_idx])
                 extra_train_parts.append(csr_matrix(h_train))
                 extra_test_parts.append(csr_matrix(h_test))
+
+            if use_pos_features:
+                scaler_p = MinMaxScaler()
+                p_train = scaler_p.fit_transform(pos_feats[train_idx])
+                p_test = scaler_p.transform(pos_feats[test_idx])
+                extra_train_parts.append(csr_matrix(p_train))
+                extra_test_parts.append(csr_matrix(p_test))
 
             if use_sarcasm:
                 scaler_s = MinMaxScaler()
@@ -307,40 +405,52 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
     Progressive configurations:
     A. Baseline:      BoW + Naive Bayes (most primitive ML approach)
     B. Innovation 1:  TF-IDF + Linear SVM (improved representation + classifier)
-    C. Innovation 2:  TF-IDF + SVM + Hybrid features (symbolic + subsymbolic)
-    D. Innovation 3:  TF-IDF + SVM + Hybrid + Sarcasm (enhanced classification)
-    E. Innovation 4:  Full features + Stacked Ensemble (ensemble classification)
+    C. Innovation 2:  + NLP Preprocessing (lemmatization + stopwords) + POS features
+    D. Innovation 3:  + Hybrid features (VADER + stats) (symbolic + subsymbolic)
+    E. Innovation 4:  + Sarcasm features (enhanced classification)
+    F. Innovation 5:  Full features + Stacked Ensemble (ensemble classification)
 
     Returns dict of {config_name: metrics}.
     """
     print("\n" + "#" * 100)
-    print("# Q5 INNOVATIONS: ABLATION STUDY (BoW+NB -> TF-IDF+SVM -> Hybrid -> Ensemble)")
+    print("# Q5 INNOVATIONS: ABLATION STUDY (BoW+NB -> TF-IDF+SVM -> NLP -> Hybrid -> Ensemble)")
     print("#" * 100)
 
     ablation_configs = [
         {
             'name': 'A. Baseline (BoW + NB)',
             'vectorizer_type': 'bow', 'classifier_type': 'nb',
+            'use_nlp_preprocess': False, 'use_pos_features': False,
             'use_hybrid': False, 'use_sarcasm': False, 'use_ensemble': False,
         },
         {
             'name': 'B. TF-IDF + SVM',
             'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
+            'use_nlp_preprocess': False, 'use_pos_features': False,
             'use_hybrid': False, 'use_sarcasm': False, 'use_ensemble': False,
         },
         {
-            'name': 'C. + Hybrid (VADER+Stats)',
+            'name': 'C. + NLP Preprocess + POS',
             'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
+            'use_nlp_preprocess': True, 'use_pos_features': True,
+            'use_hybrid': False, 'use_sarcasm': False, 'use_ensemble': False,
+        },
+        {
+            'name': 'D. + Hybrid (VADER+Stats)',
+            'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
+            'use_nlp_preprocess': True, 'use_pos_features': True,
             'use_hybrid': True, 'use_sarcasm': False, 'use_ensemble': False,
         },
         {
-            'name': 'D. + Hybrid + Sarcasm',
+            'name': 'E. + Sarcasm Features',
             'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
+            'use_nlp_preprocess': True, 'use_pos_features': True,
             'use_hybrid': True, 'use_sarcasm': True, 'use_ensemble': False,
         },
         {
-            'name': 'E. + Hybrid + Sarcasm + Ensemble',
+            'name': 'F. + Ensemble',
             'vectorizer_type': 'tfidf', 'classifier_type': 'svm',
+            'use_nlp_preprocess': True, 'use_pos_features': True,
             'use_hybrid': True, 'use_sarcasm': True, 'use_ensemble': True,
         },
     ]
@@ -357,6 +467,8 @@ def run_ablation_study(texts: List[str], labels: np.ndarray,
             texts, labels, label_names, args,
             vectorizer_type=config['vectorizer_type'],
             classifier_type=config['classifier_type'],
+            use_nlp_preprocess=config.get('use_nlp_preprocess', False),
+            use_pos_features=config.get('use_pos_features', False),
             use_hybrid=config['use_hybrid'],
             use_sarcasm=config['use_sarcasm'],
             use_ensemble=config['use_ensemble'],

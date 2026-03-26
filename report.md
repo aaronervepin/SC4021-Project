@@ -139,7 +139,7 @@ For sentiment classification, **normalized text consistently outperforms origina
 
 ## Question 5: Innovations for Enhancing Classification
 
-We explore **four progressive innovations** to enhance sentiment classification, evaluated through an ablation study that isolates the contribution of each innovation. Starting from a primitive baseline (BoW + Naive Bayes), we incrementally add more sophisticated techniques.
+We explore **five progressive innovations** to enhance sentiment classification, evaluated through an ablation study that isolates the contribution of each innovation. Starting from a primitive baseline (BoW + Naive Bayes), we incrementally add more sophisticated techniques.
 
 ### 5.1 Baseline: Bag-of-Words + Multinomial Naive Bayes
 
@@ -161,9 +161,32 @@ This represents the simplest possible text classification pipeline — raw word 
 
 **Example:** For the text *"The education system here is really terrible"*, BoW gives "terrible" and "the" equal weight (both count=1). TF-IDF assigns "terrible" a much higher score (rare, informative) and "the" a near-zero score (ubiquitous, uninformative).
 
-### 5.3 Innovation 2: Hybrid Classification (Symbolic + Subsymbolic AI)
+### 5.3 Innovation 2: NLP Preprocessing + POS-Tag Features
 
-We augment the TF-IDF features with **symbolic, knowledge-based features** to create a hybrid system:
+We apply deeper NLP preprocessing and extract linguistic structure features:
+
+**Preprocessing (applied to TF-IDF input text):**
+- **Lemmatization** (WordNet Lemmatizer): Reduces inflected words to their base form (e.g., "studying" → "study", "universities" → "university"), reducing vocabulary sparsity and helping TF-IDF generalize across morphological variants.
+- **Stopword removal** (NLTK English stopwords, 198 words): Removes function words ("the", "is", "at") that carry little sentiment information, allowing TF-IDF to focus on content-bearing words.
+
+**POS-tag features (6 features appended to TF-IDF):**
+- **Adjective ratio** (JJ/JJR/JJS): Adjectives are primary sentiment carriers ("great", "terrible", "boring")
+- **Adverb ratio** (RB/RBR/RBS): Adverbs modify sentiment intensity ("very", "extremely", "barely")
+- **Verb ratio** (VB*): Verbs indicate actions and states ("love", "hate", "struggle")
+- **Noun ratio** (NN*): Nouns indicate topics being discussed
+- **Pronoun ratio** (PRP*): First-person pronouns correlate with subjective, opinionated text
+- **Interjection count** (UH): Emotional exclamations ("wow", "oh", "ah") signal strong sentiment
+
+**Why this helps:** Lemmatization + stopword removal reduces noise in the TF-IDF feature space, allowing the classifier to focus on discriminative content words. POS-tag features capture linguistic structure that bag-of-words models miss — for example, a text dense in adjectives and adverbs is more likely to express strong sentiment than one dominated by nouns.
+
+**Example:** For *"The terrible lecturers are absolutely destroying students' motivation"*:
+- Lemmatization: "lecturers" → "lecturer", "destroying" → "destroy", "students'" → "student"
+- Stopword removal: removes "the", "are"
+- POS features: high adjective ratio ("terrible"), high adverb ratio ("absolutely") → strong sentiment signal
+
+### 5.4 Innovation 3: Hybrid Classification (Symbolic + Subsymbolic AI)
+
+We augment the feature set with **symbolic, knowledge-based features** to create a hybrid system:
 
 - **VADER lexicon scores** (4 features): negative, neutral, positive, and compound sentiment scores from the VADER sentiment lexicon. This injects domain knowledge about word-level sentiment polarity that TF-IDF alone cannot capture.
 - **Text statistics** (8 features): character count, word count, average word length, exclamation/question mark counts, capitalization ratio, emoji count, and negation word count. These rule-based features capture stylistic signals correlated with sentiment.
@@ -172,7 +195,7 @@ We augment the TF-IDF features with **symbolic, knowledge-based features** to cr
 
 **Example:** For the text *"Wow this is absolutely terrible!!! Cannot believe it"*, TF-IDF encodes word frequencies, but VADER directly assigns compound = −0.83 (strongly negative), while the rule-based features capture 3 exclamation marks and 1 negation word — all reinforcing the negative signal.
 
-### 5.4 Innovation 3: Enhanced Classification (Sarcasm-Aware Sentiment)
+### 5.5 Innovation 4: Enhanced Classification (Sarcasm-Aware Sentiment)
 
 We add **sarcasm-indicative features** to help the model detect cases where surface-level sentiment is opposite to intended sentiment:
 
@@ -185,11 +208,11 @@ We add **sarcasm-indicative features** to help the model detect cases where surf
 
 **Why this matters:** Sarcasm inverts the polarity of text — *"Oh sure, the education system is just perfect"* reads as positive on surface but conveys negative sentiment. By explicitly modeling sarcasm indicators, the classifier can learn to adjust its predictions when sarcasm signals are present.
 
-### 5.5 Innovation 4: Ensemble Classification (Stacked Ensemble)
+### 5.6 Innovation 5: Ensemble Classification (Stacked Ensemble)
 
-We also test a **Stacked Ensemble** combining LR + NB + RF with an LR meta-learner, applied on top of the full augmented feature set (TF-IDF + hybrid + sarcasm).
+We also test a **Stacked Ensemble** combining LR + NB + RF with an LR meta-learner, applied on top of the full augmented feature set (TF-IDF + NLP + hybrid + sarcasm).
 
-### 5.6 Ablation Study
+### 5.7 Ablation Study
 
 All experiments use the **Sentiment (3-class)** task with **original Singlish text** and **5-fold stratified CV**:
 
@@ -197,39 +220,43 @@ All experiments use the **Sentiment (3-class)** task with **original Singlish te
 |--------------|----------|------------|-----------|----------|-------------------|
 | A. Baseline (BoW + NB) | 0.6325 | 0.6465 | 0.6306 | 0.6307 | — |
 | B. + TF-IDF + SVM | 0.7495 | 0.7497 | 0.7494 | 0.7495 | **+0.1188** |
-| C. + Hybrid (VADER + Stats) | 0.7612 | 0.7614 | 0.7609 | 0.7611 | **+0.1304** |
-| **D. + Hybrid + Sarcasm** | **0.7621** | **0.7622** | **0.7619** | **0.7620** | **+0.1313** |
-| E. + Hybrid + Sarcasm + Ensemble | 0.7246 | 0.7253 | 0.7240 | 0.7240 | +0.0933 |
+| C. + NLP Preprocess + POS | 0.7675 | 0.7674 | 0.7673 | 0.7673 | **+0.1366** |
+| D. + Hybrid (VADER + Stats) | 0.7718 | 0.7719 | 0.7717 | 0.7718 | **+0.1411** |
+| **E. + Sarcasm Features** | **0.7752** | **0.7754** | **0.7750** | **0.7752** | **+0.1445** |
+| F. + Ensemble | 0.7415 | 0.7421 | 0.7410 | 0.7412 | +0.1105 |
 
 ![Ablation Study](figures/ablation_study.png)
 
-### 5.7 Analysis
+### 5.8 Analysis
 
 **Key findings:**
 
 1. **TF-IDF + SVM provides the largest single improvement** (+0.1188 F1 over baseline). Replacing raw word counts with TF-IDF weighting and NB with Linear SVM yields a dramatic 18.8% relative improvement. This confirms that (a) term importance weighting is critical for text classification, and (b) discriminative classifiers outperform generative models on this task.
 
-2. **Hybrid features provide meaningful additional improvement** (+0.0116 F1 on top of TF-IDF+SVM). Adding VADER lexicon scores and text statistics gives the SVM classifier complementary signals that pure bag-of-words cannot capture. This confirms the value of combining symbolic (knowledge-based) and subsymbolic (statistical) approaches.
+2. **NLP preprocessing + POS features provide significant additional improvement** (+0.0178 F1 on top of TF-IDF+SVM). Lemmatization reduces vocabulary sparsity by mapping morphological variants to common base forms, while stopword removal sharpens the TF-IDF signal. POS-tag features add linguistic structure information — the adjective and adverb ratios are particularly informative for sentiment, as these word classes carry the bulk of evaluative language.
 
-3. **Sarcasm features provide a small but consistent improvement** (+0.0009 F1 on top of hybrid). The modest gain is expected given that sarcasm is relatively rare in this dataset (only 48 out of 5,733 samples labeled as sarcastic). However, sarcasm features stack additively with hybrid features, showing they capture a complementary signal.
+3. **Hybrid features provide further improvement** (+0.0045 F1 on top of NLP). Adding VADER lexicon scores and text statistics gives the SVM classifier complementary knowledge-based signals. This confirms the value of combining symbolic (knowledge-based) and subsymbolic (statistical) approaches, though the gain is smaller when NLP preprocessing has already cleaned the feature space.
 
-4. **Ensemble classification hurts performance** (−0.0380 F1 vs. best). The stacking approach degrades results because:
+4. **Sarcasm features provide a small but consistent improvement** (+0.0034 F1 on top of hybrid). The modest gain is expected given that sarcasm is relatively rare in this dataset (only 48 out of 5,733 samples labeled as sarcastic). However, sarcasm features stack additively with all other innovations.
+
+5. **Ensemble classification hurts performance** (−0.0340 F1 vs. best). The stacking approach degrades results because:
    - The NB component requires non-negative features, forcing feature clipping that loses information
    - The meta-learner overfits on the internal 3-fold CV with augmented features
    - Linear SVM alone is already highly effective on the high-dimensional TF-IDF space
 
-5. **Best configuration: TF-IDF + Hybrid + Sarcasm + Linear SVM** achieves Macro F1 = 0.7620, a **+20.8% relative improvement** over the primitive BoW+NB baseline (0.6307).
+6. **Best configuration: TF-IDF + NLP + Hybrid + Sarcasm + Linear SVM** achieves Macro F1 = 0.7752, a **+22.9% relative improvement** over the primitive BoW+NB baseline (0.6307).
 
 **Incremental contributions (ablation):**
 
 | Innovation Added | Individual Gain | Cumulative F1 |
 |-----------------|-----------------|:-------------:|
 | TF-IDF + SVM (replaces BoW + NB) | +0.1188 | 0.7495 |
-| Hybrid (VADER + text stats) | +0.0116 | 0.7611 |
-| Sarcasm features | +0.0009 | 0.7620 |
-| Ensemble (harmful) | −0.0380 | 0.7240 |
+| NLP Preprocessing + POS features | +0.0178 | 0.7673 |
+| Hybrid (VADER + text stats) | +0.0045 | 0.7718 |
+| Sarcasm features | +0.0034 | 0.7752 |
+| Ensemble (harmful) | −0.0340 | 0.7412 |
 
-The ablation clearly shows a **progressive improvement** from primitive (BoW+NB) through standard (TF-IDF+SVM) to hybrid (symbolic+subsymbolic), with the first innovation providing the bulk of the improvement. Ensemble classification is not beneficial in this setting.
+The ablation clearly shows a **monotonically progressive improvement** from primitive (BoW+NB) through standard (TF-IDF+SVM) to NLP-enhanced to hybrid (symbolic+subsymbolic), with each innovation contributing positively. Ensemble classification is the only technique that does not help in this setting.
 
 ---
 
