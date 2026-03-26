@@ -240,12 +240,6 @@ Selected confusion matrices for the best-performing models:
 ### Sentiment (Linear SVM, Normalized Text)
 ![CM Sentiment SVM](figures/confusion_matrices/cm_sentiment_final_svm_original_text.png)
 
-### Sarcasm (Logistic Regression, Normalized Text)
-![CM Sarcasm LR](figures/confusion_matrices/cm_sarcasm_final_logistic_original_text.png)
-
-### Subjectivity (Linear SVM, Original Text)
-![CM Subjectivity SVM](figures/confusion_matrices/cm_subjectivity_final_svm_normalized_text.png)
-
 ---
 
 ## Project Structure
