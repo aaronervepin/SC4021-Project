@@ -308,14 +308,18 @@ def _run_cv_experiment(
 
             estimators = [
                 ('lr', LogisticRegression(max_iter=1000, C=1.0,
-                                          solver='lbfgs', random_state=args.seed)),
+                                          solver='lbfgs', random_state=args.seed,
+                                          class_weight='balanced')),
                 ('nb', MultinomialNB(alpha=0.1)),
+                ('svm', LinearSVC(max_iter=2000, C=1.0, random_state=args.seed,
+                                  class_weight='balanced')),
                 ('rf', RandomForestClassifier(n_estimators=100, random_state=args.seed,
                                               n_jobs=-1)),
             ]
             clf = StackingClassifier(
                 estimators=estimators,
-                final_estimator=LogisticRegression(max_iter=500, random_state=args.seed),
+                final_estimator=LogisticRegression(max_iter=500, random_state=args.seed,
+                                                   class_weight='balanced'),
                 cv=3, n_jobs=-1,
             )
             X_train_use, X_test_use = X_train_nn, X_test_nn
@@ -323,7 +327,8 @@ def _run_cv_experiment(
             clf = MultinomialNB(alpha=0.1)
             X_train_use, X_test_use = X_train, X_test
         else:
-            clf = LinearSVC(max_iter=2000, C=1.0, random_state=args.seed)
+            clf = LinearSVC(max_iter=2000, C=1.0, random_state=args.seed,
+                            class_weight='balanced')
             X_train_use, X_test_use = X_train, X_test
 
         t0 = time.time()
