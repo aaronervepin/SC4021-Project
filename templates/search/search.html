@@ -1,70 +1,546 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reddit Opinion Search</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
-        input[type=text] { width: 70%; padding: 10px; font-size: 16px; }
-        button { padding: 10px 20px; font-size: 16px; background-color: #ff4500; color: white; border: none; cursor: pointer; }
-        .result { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .meta { color: grey; font-size: 13px; }
-        .stats { color: grey; margin: 10px 0; }
-        .pagination { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
-        .pagination a { padding: 8px 16px; background: #ff4500; color: white; text-decoration: none; border-radius: 4px; }
-        .pagination span { color: grey; }
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-        .sentiment-box { margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9; }
-        .sentiment-box h3 { margin: 0 0 10px 0; font-size: 15px; color: #333; }
-        .sentiment-bar { display: flex; height: 30px; border-radius: 5px; overflow: hidden; margin-bottom: 10px; }
-        .bar-positive { background: #2ecc71; }
-        .bar-neutral { background: #bdc3c7; }
-        .bar-negative { background: #e74c3c; }
-        .sentiment-labels { display: flex; gap: 20px; font-size: 13px; }
-        .label-positive { color: #2ecc71; font-weight: bold; }
-        .label-neutral { color: #95a5a6; font-weight: bold; }
-        .label-negative { color: #e74c3c; font-weight: bold; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 920px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f6f7f8;
+            color: #1c1c1c;
+        }
+
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            color: #ff4500;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* ── Search form ── */
+        .search-form {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .search-form input[type=text] {
+            flex: 1;
+            padding: 11px 14px;
+            font-size: 15px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-form input[type=text]:focus {
+            border-color: #ff4500;
+        }
+
+        .search-form button {
+            padding: 11px 22px;
+            font-size: 15px;
+            font-weight: 700;
+            background: #ff4500;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .search-form button:hover {
+            background: #d93c00;
+        }
+
+        /* ── Stats bar ── */
+        .stats-bar {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .engine-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 9px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .engine-tfidf {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffc107;
+        }
+
+        .engine-solr {
+            background: #cfe2ff;
+            color: #084298;
+            border: 1px solid #0d6efd;
+        }
+
+        /* ── Info box ── */
+        .info-box {
+            background: #fffbf5;
+            border: 1px solid #f9c784;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 12px;
+            color: #7c4a00;
+            margin-bottom: 14px;
+            line-height: 1.6;
+        }
+
+        /* ── Sentiment box ── */
+        .sentiment-box {
+            margin: 14px 0;
+            padding: 14px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .sentiment-box h3 {
+            font-size: 13px;
+            color: #444;
+            margin-bottom: 9px;
+        }
+
+        .sentiment-bar {
+            display: flex;
+            height: 10px;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 8px;
+            background: #eee;
+        }
+
+        .bar-positive {
+            background: #2ecc71;
+        }
+
+        .bar-neutral {
+            background: #bdc3c7;
+        }
+
+        .bar-negative {
+            background: #e74c3c;
+        }
+
+        .sentiment-labels {
+            display: flex;
+            gap: 18px;
+            font-size: 12px;
+        }
+
+        .label-positive {
+            color: #27ae60;
+            font-weight: 700;
+        }
+
+        .label-neutral {
+            color: #95a5a6;
+            font-weight: 700;
+        }
+
+        .label-negative {
+            color: #c0392b;
+            font-weight: 700;
+        }
+
+        /* ── Result card ── */
+        .result {
+            background: #fff;
+            border: 1px solid #e4e4e4;
+            border-radius: 8px;
+            padding: 16px 18px;
+            margin-bottom: 10px;
+            transition: box-shadow 0.15s;
+        }
+
+        .result:hover {
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.08);
+        }
+
+        .result-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        /* ── Rank badge ── */
+        .rank-badge {
+            flex-shrink: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #ff4500;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+        }
+
+        .rank-1 {
+            background: #f5a623;
+        }
+
+        .rank-2 {
+            background: #9b9b9b;
+        }
+
+        .rank-3 {
+            background: #c47a3a;
+        }
+
+        .result h3 {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1a1a1b;
+            line-height: 1.35;
+        }
+
+        .result p.body-text {
+            font-size: 13.5px;
+            color: #444;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+
+        /* ── Tags row ── */
+        .tags-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 9px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            letter-spacing: 0.2px;
+        }
+
+        /* Education level — blue */
+        .tag-edu {
+            background: #e8f0fe;
+            color: #1a56db;
+            border: 1px solid #c3d3f9;
+        }
+
+        /* Subject — purple */
+        .tag-subject {
+            background: #f3e8ff;
+            color: #7e22ce;
+            border: 1px solid #ddd6fe;
+        }
+
+        /* Subjectivity */
+        .tag-subjective {
+            background: #fef9c3;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+
+        .tag-objective {
+            background: #f0fdf4;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        /* Per-post sentiment */
+        .tag-positive {
+            background: #dcfce7;
+            color: #15803d;
+            border: 1px solid #86efac;
+        }
+
+        .tag-neutral {
+            background: #f3f4f6;
+            color: #6b7280;
+            border: 1px solid #d1d5db;
+        }
+
+        .tag-negative {
+            background: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #fca5a5;
+        }
+
+        /* ── Score row ── */
+        .score-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .tfidf-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 9px;
+            border-radius: 12px;
+            background: #fff8f0;
+            border: 1px solid #f9c784;
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #7c4a00;
+            white-space: nowrap;
+        }
+
+        .tfidf-pill .pill-label {
+            font-weight: 400;
+            opacity: 0.7;
+        }
+
+        .score-bar-wrap {
+            width: 80px;
+            height: 5px;
+            background: #ece9e4;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #f5a623, #ff4500);
+        }
+
+        .meta {
+            font-size: 12px;
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .meta a {
+            color: #ff4500;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .meta a:hover {
+            text-decoration: underline;
+        }
+
+        .meta-dot {
+            color: #ccc;
+        }
+
+        /* ── Pagination ── */
+        .pagination {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 22px 0;
+        }
+
+        .pagination a {
+            padding: 8px 18px;
+            background: #ff4500;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .pagination a:hover {
+            background: #d93c00;
+        }
+
+        .pagination span {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px 0;
+            color: #888;
+            font-size: 15px;
+        }
     </style>
 </head>
+
 <body>
-    <h1>Reddit Opinion Search</h1>
-    <form method="get">
+
+    <h1>🔍 Reddit Opinion Search</h1>
+
+    <form class="search-form" method="get">
         <input type="text" name="q" value="{{ query }}" placeholder="e.g. A level math difficult">
         <button type="submit">Search</button>
     </form>
 
     {% if query %}
-    <p class="stats">Found {{ num_found }} results in {{ qtime }}ms</p>
+    <div class="stats-bar">
+        <span>Found <strong>{{ num_found }}</strong> results in {{ qtime }}ms</span>
+        {% if engine_used == "tfidf" %}
+        <span class="engine-badge engine-tfidf">⚡ Relevance Ranked</span>
+        {% elif engine_used == "solr" %}
+        <span class="engine-badge engine-solr">☁ Solr Fallback</span>
+        {% endif %}
+    </div>
+
+    {% if engine_used == "tfidf" %}
+    <div class="info-box">
+        Results are ranked by relevance to your query. Each post is given a score from
+        <strong>0.00</strong> (no match) to <strong>1.00</strong> (perfect match) based on
+        how closely its words align with your search terms.
+    </div>
+    {% endif %}
     {% endif %}
 
     {% if sentiment %}
     <div class="sentiment-box">
-        <h3>Sentiment Analysis for "{{ query }}" (based on {{ sentiment.total }} opinions)</h3>
+        <h3>Sentiment breakdown for "<strong>{{ query }}</strong>"
+            ({{ sentiment.total }} posts)</h3>
         <div class="sentiment-bar">
-            <div class="bar-positive" style="width: {{ sentiment.positive }}%"></div>
-            <div class="bar-neutral" style="width: {{ sentiment.neutral }}%"></div>
-            <div class="bar-negative" style="width: {{ sentiment.negative }}%"></div>
+            <div class="bar-positive" data-w="{{ sentiment.positive }}"></div>
+            <div class="bar-neutral" data-w="{{ sentiment.neutral }}"></div>
+            <div class="bar-negative" data-w="{{ sentiment.negative }}"></div>
         </div>
         <div class="sentiment-labels">
-            <span class="label-positive">Positive: {{ sentiment.positive }}%</span>
-            <span class="label-neutral">Neutral: {{ sentiment.neutral }}%</span>
-            <span class="label-negative">Negative: {{ sentiment.negative }}%</span>
+            <span class="label-positive">▲ Positive {{ sentiment.positive }}%</span>
+            <span class="label-neutral">● Neutral {{ sentiment.neutral }}%</span>
+            <span class="label-negative">▼ Negative {{ sentiment.negative }}%</span>
         </div>
     </div>
     {% endif %}
 
     {% for result in results %}
     <div class="result">
-        <h3>{{ result.title }}</h3>
-        <p>{{ result.body|truncatechars:300 }}</p>
-        <p class="meta">
-            r/{{ result.subreddit }} | 
-            u/{{ result.author }} | 
-            Score: {{ result.score }} |
-            <a href="{{ result.url }}" target="_blank">View on Reddit</a>
-        </p>
+
+        <!-- rank badge + title -->
+        <div class="result-header">
+            <div class="rank-badge rank-{{ result.rank }}">#{{ result.rank }}</div>
+            <h3>{{ result.title }}</h3>
+        </div>
+
+        <!-- body preview -->
+        <p class="body-text">{{ result.body|truncatechars:300 }}</p>
+
+        <!-- ── Tags ── -->
+        <div class="tags-row">
+
+            <!-- Education level -->
+            {% if result.education_level %}
+            {% if result.education_level == "alevel" %}
+            <span class="tag tag-edu">🎓 A Level</span>
+            {% elif result.education_level == "olevel" %}
+            <span class="tag tag-edu">🎓 O Level</span>
+            {% elif result.education_level == "nlevel" %}
+            <span class="tag tag-edu">🎓 N Level</span>
+            {% elif result.education_level == "psle" %}
+            <span class="tag tag-edu">🎓 PSLE</span>
+            {% elif result.education_level == "jc" %}
+            <span class="tag tag-edu">🎓 JC</span>
+            {% elif result.education_level == "poly" %}
+            <span class="tag tag-edu">🎓 Polytechnic</span>
+            {% elif result.education_level == "ite" %}
+            <span class="tag tag-edu">🎓 ITE</span>
+            {% elif result.education_level == "uni" %}
+            <span class="tag tag-edu">🎓 University</span>
+            {% elif result.education_level == "masters" %}
+            <span class="tag tag-edu">🎓 Masters</span>
+            {% elif result.education_level == "general" %}
+            <span class="tag tag-edu">🎓 General</span>
+            {% endif %}
+            {% endif %}
+
+            <!-- Subject (hidden if "none") -->
+            {% if result.subject and result.subject != "none" %}
+            <span class="tag tag-subject">📚 {{ result.subject|capfirst }}</span>
+            {% endif %}
+
+            <!-- Subjectivity -->
+            {% if result.subjectivity == "subjective" %}
+            <span class="tag tag-subjective">💬 Subjective</span>
+            {% elif result.subjectivity == "objective" %}
+            <span class="tag tag-objective">📋 Objective</span>
+            {% endif %}
+
+            <!-- Per-post sentiment from Output_2: "1"=positive, "0"=neutral, "-1"=negative -->
+            {% if result.Output_2 == "1" %}
+            <span class="tag tag-positive">▲ Positive</span>
+            {% elif result.Output_2 == "-1" %}
+            <span class="tag tag-negative">▼ Negative</span>
+            {% else %}
+            <span class="tag tag-neutral">● Neutral</span>
+            {% endif %}
+
+        </div>
+
+        <!-- score + meta row -->
+        <div class="score-row">
+            {% if result.tfidf_score is not None %}
+            <span class="tfidf-pill">
+                <span class="pill-label">TF-IDF</span>
+                {{ result.tfidf_score }}
+                <span class="score-bar-wrap">
+                    <span class="score-bar-fill" data-w="{{ result.tfidf_score_pct }}"></span>
+                </span>
+            </span>
+            {% endif %}
+
+            <span class="meta">
+                <span>r/{{ result.subreddit }}</span>
+                <span class="meta-dot">·</span>
+                <span>u/{{ result.author }}</span>
+                <span class="meta-dot">·</span>
+                <span>↑ {{ result.score }}</span>
+                <span class="meta-dot">·</span>
+                <a href="{{ result.url }}" target="_blank" rel="noopener">View on Reddit ↗</a>
+            </span>
+        </div>
+
     </div>
     {% empty %}
-    {% if query %}<p>No results found.</p>{% endif %}
+    {% if query %}
+    <div class="no-results">
+        <p>No results found for "<strong>{{ query }}</strong>".</p>
+        <p style="margin-top:8px; font-size:13px;">Try a shorter or different query.</p>
+    </div>
+    {% endif %}
     {% endfor %}
 
     {% if num_pages > 1 %}
@@ -75,5 +551,13 @@
     </div>
     {% endif %}
 
+    <script>
+        /* Set bar widths from data-w to avoid VS Code inline-style linter warnings */
+        document.querySelectorAll('[data-w]').forEach(function (el) {
+            el.style.width = el.getAttribute('data-w') + '%';
+        });
+    </script>
+
 </body>
+
 </html>
