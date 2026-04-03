@@ -16,10 +16,12 @@ def get_classifier(name: str, seed: int):
     """Return classifier instance by name."""
     classifiers = {
         'logistic': LogisticRegression(
-            max_iter=1000, C=1.0, solver='lbfgs', random_state=seed
+            max_iter=1000, C=1.0, solver='lbfgs', random_state=seed,
+            class_weight='balanced'
         ),
         'svm': LinearSVC(
-            max_iter=2000, C=1.0, random_state=seed
+            max_iter=2000, C=1.0, random_state=seed,
+            class_weight='balanced'
         ),
         'nb': MultinomialNB(alpha=0.1),
         'rf': RandomForestClassifier(
@@ -34,15 +36,16 @@ def get_classifier(name: str, seed: int):
 
 
 def get_stacking_ensemble(seed: int):
-    """Return a stacking ensemble classifier (LR + SVM + NB -> LR meta)."""
+    """Return a stacking ensemble classifier (LR + SVM + NB + RF -> LR meta)."""
     estimators = [
-        ('lr', LogisticRegression(max_iter=1000, C=1.0, solver='lbfgs', random_state=seed)),
+        ('lr', LogisticRegression(max_iter=1000, C=1.0, solver='lbfgs', random_state=seed, class_weight='balanced')),
         ('nb', MultinomialNB(alpha=0.1)),
+        ('svm', LinearSVC(max_iter=2000, C=1.0, random_state=seed, class_weight='balanced')),
         ('rf', RandomForestClassifier(n_estimators=100, max_depth=None, random_state=seed, n_jobs=-1)),
     ]
     return StackingClassifier(
         estimators=estimators,
-        final_estimator=LogisticRegression(max_iter=500, random_state=seed),
+        final_estimator=LogisticRegression(max_iter=500, random_state=seed, class_weight='balanced'),
         cv=3,
         n_jobs=-1,
     )
