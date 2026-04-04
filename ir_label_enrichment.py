@@ -19,6 +19,8 @@ New columns added (all designed to improve TF-IDF & IR):
   9. specificity        : high / medium / low   (how specific/actionable the post is)
   10. temporal_context   : before_exam / during_exam / after_exam / results_day / enrollment_period /
                           semester / holiday / general
+  11. year               : p6 / sec1 / sec2 / sec3 / sec4 / sec5 / jc1 / jc2 /
+                          year1 / year2 / year3 / year4 / none
 
 API config follows the reference code pattern: api.txt for key, apiyi.com endpoint.
 
@@ -123,6 +125,13 @@ VALID_LABELS = {
         "before_exam", "during_exam", "after_exam", "results_day",
         "enrollment_period", "semester", "holiday", "general"
     ],
+    "year": [
+        "p6",
+        "sec1", "sec2", "sec3", "sec4", "sec5",
+        "jc1", "jc2",
+        "year1", "year2", "year3", "year4",
+        "none"
+    ],
 }
 
 # Default fallback values
@@ -137,6 +146,7 @@ DEFAULTS = {
     "school_mentioned": "none",
     "specificity": "medium",
     "temporal_context": "general",
+    "year": "none",
 }
 
 
@@ -258,6 +268,14 @@ For EACH post, provide ALL of the following labels:
 10. **temporal_context**: What time period relative to exams does this relate to?
     Values: "before_exam" | "during_exam" | "after_exam" | "results_day" | "enrollment_period" | "semester" | "holiday" | "general"
 
+11. **year**: Which academic year within their education level does this post relate to?
+    Values: "p6" | "sec1" | "sec2" | "sec3" | "sec4" | "sec5" | "jc1" | "jc2" | "year1" | "year2" | "year3" | "year4" | "none"
+    - "p6" for Primary 6 / PSLE level posts.
+    - "sec1"–"sec5" for Secondary school year levels (Sec 5 = N-level repeat year).
+    - "jc1" / "jc2" for Junior College year levels.
+    - "year1"–"year4" for Poly, ITE, or University year levels.
+    - "none" if no specific year within the level can be inferred.
+
 CRITICAL OUTPUT FORMAT - respond with ONLY a JSON array, no markdown fences, no explanation:
 [
   {
@@ -271,7 +289,8 @@ CRITICAL OUTPUT FORMAT - respond with ONLY a JSON array, no markdown fences, no 
     "emotion": "anxiety",
     "school_mentioned": "none",
     "specificity": "medium",
-    "temporal_context": "before_exam"
+    "temporal_context": "before_exam",
+    "year": "sec4"
   },
   ...
 ]
@@ -603,7 +622,7 @@ def main():
     new_label_fields = [
         "subjectivity", "sarcasm", "education_level", "subject",
         "intent", "topic", "emotion", "school_mentioned",
-        "specificity", "temporal_context", "label_agreement",
+        "specificity", "temporal_context", "year", "label_agreement",
     ]
     # Also include per-model raw labels for transparency
     per_model_fields = []
