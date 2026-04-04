@@ -6,21 +6,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reddit Opinion Search</title>
     <style>
-        *,
-        *::before,
-        *::after {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
-            max-width: 920px;
-            margin: 40px auto;
-            padding: 0 20px;
             background: #f6f7f8;
             color: #1c1c1c;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 210px;
+            min-width: 210px;
+            background: #1a1a1a;
+            padding: 20px 0;
+            min-height: 100vh;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .sidebar h2 {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #666;
+            padding: 0 14px 10px 14px;
+            letter-spacing: 1px;
+        }
+
+        .history-row {
+            display: flex;
+            align-items: center;
+            margin: 2px 6px;
+        }
+
+        .history-item {
+            flex: 1;
+            display: block;
+            padding: 8px 10px;
+            color: #ccc;
+            text-decoration: none;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-radius: 5px;
+        }
+
+        .history-item:hover { background: #2a2a2a; color: white; }
+        .history-item.active { background: #333; color: white; }
+
+        .remove-btn {
+            background: none;
+            border: none;
+            color: #555;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 4px 6px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .remove-btn:hover { color: white; background: #333; }
+
+        .no-history {
+            padding: 10px 14px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        /* ── Main content ── */
+        .main {
+            flex: 1;
+            padding: 40px;
+            max-width: 900px;
         }
 
         h1 {
@@ -33,11 +95,10 @@
             gap: 10px;
         }
 
-        /* ── Search form ── */
         .search-form {
             display: flex;
             gap: 8px;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
         .search-form input[type=text] {
@@ -50,11 +111,9 @@
             transition: border-color 0.2s;
         }
 
-        .search-form input[type=text]:focus {
-            border-color: #ff4500;
-        }
+        .search-form input[type=text]:focus { border-color: #ff4500; }
 
-        .search-form button {
+        .search-form button[type=submit] {
             padding: 11px 22px;
             font-size: 15px;
             font-weight: 700;
@@ -63,14 +122,140 @@
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            transition: background 0.15s;
         }
 
-        .search-form button:hover {
-            background: #d93c00;
+        .search-form button[type=submit]:hover { background: #d93c00; }
+
+        /* Filter toggle */
+        .filter-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 7px 14px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 8px;
+            user-select: none;
         }
 
-        /* ── Stats bar ── */
+        .filter-toggle:hover { border-color: #ff4500; color: #ff4500; }
+        .filter-toggle .arrow { transition: transform 0.2s; font-size: 10px; display: inline-block; }
+        .filter-toggle.open .arrow { transform: rotate(180deg); }
+
+        .filter-panel {
+            display: none;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 14px;
+        }
+
+        .filter-panel.open { display: block; }
+
+        .filter-groups {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .filter-group h4 {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .filter-group label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            margin-bottom: 5px;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+
+        .filter-group label:hover { background: #f5f5f5; }
+        .filter-group input[type=checkbox] { accent-color: #ff4500; cursor: pointer; }
+
+        .filter-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+        }
+
+        .btn-apply {
+            padding: 8px 20px;
+            background: #ff4500;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-apply:hover { background: #d93c00; }
+
+        .btn-clear {
+            padding: 8px 16px;
+            background: #fff;
+            color: #666;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .btn-clear:hover { border-color: #aaa; color: #333; }
+
+        .active-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .active-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: #fff3f0;
+            border: 1px solid #ffb5a0;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #cc3300;
+            font-weight: 600;
+        }
+
+        .active-pill .remove-pill {
+            cursor: pointer;
+            font-size: 11px;
+            color: #cc3300;
+            background: none;
+            border: none;
+            padding: 0;
+            font-weight: 700;
+        }
+
+        .active-pill .remove-pill:hover { color: #900; }
+
         .stats-bar {
             display: flex;
             align-items: center;
@@ -92,19 +277,9 @@
             letter-spacing: 0.5px;
         }
 
-        .engine-tfidf {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffc107;
-        }
+        .engine-tfidf { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+        .engine-solr  { background: #cfe2ff; color: #084298; border: 1px solid #0d6efd; }
 
-        .engine-solr {
-            background: #cfe2ff;
-            color: #084298;
-            border: 1px solid #0d6efd;
-        }
-
-        /* ── Info box ── */
         .info-box {
             background: #fffbf5;
             border: 1px solid #f9c784;
@@ -116,7 +291,6 @@
             line-height: 1.6;
         }
 
-        /* ── Sentiment box ── */
         .sentiment-box {
             margin: 14px 0;
             padding: 14px 16px;
@@ -125,11 +299,7 @@
             background: #fff;
         }
 
-        .sentiment-box h3 {
-            font-size: 13px;
-            color: #444;
-            margin-bottom: 9px;
-        }
+        .sentiment-box h3 { font-size: 13px; color: #444; margin-bottom: 9px; }
 
         .sentiment-bar {
             display: flex;
@@ -140,40 +310,15 @@
             background: #eee;
         }
 
-        .bar-positive {
-            background: #2ecc71;
-        }
+        .bar-positive { background: #2ecc71; }
+        .bar-neutral  { background: #bdc3c7; }
+        .bar-negative { background: #e74c3c; }
 
-        .bar-neutral {
-            background: #bdc3c7;
-        }
+        .sentiment-labels { display: flex; gap: 18px; font-size: 12px; }
+        .label-positive { color: #27ae60; font-weight: 700; }
+        .label-neutral  { color: #95a5a6; font-weight: 700; }
+        .label-negative { color: #c0392b; font-weight: 700; }
 
-        .bar-negative {
-            background: #e74c3c;
-        }
-
-        .sentiment-labels {
-            display: flex;
-            gap: 18px;
-            font-size: 12px;
-        }
-
-        .label-positive {
-            color: #27ae60;
-            font-weight: 700;
-        }
-
-        .label-neutral {
-            color: #95a5a6;
-            font-weight: 700;
-        }
-
-        .label-negative {
-            color: #c0392b;
-            font-weight: 700;
-        }
-
-        /* ── Result card ── */
         .result {
             background: #fff;
             border: 1px solid #e4e4e4;
@@ -183,18 +328,9 @@
             transition: box-shadow 0.15s;
         }
 
-        .result:hover {
-            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.08);
-        }
+        .result:hover { box-shadow: 0 3px 14px rgba(0,0,0,0.08); }
+        .result-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
 
-        .result-header {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            margin-bottom: 8px;
-        }
-
-        /* ── Rank badge ── */
         .rank-badge {
             flex-shrink: 0;
             width: 30px;
@@ -210,39 +346,14 @@
             margin-top: 2px;
         }
 
-        .rank-1 {
-            background: #f5a623;
-        }
+        .rank-1 { background: #f5a623; }
+        .rank-2 { background: #9b9b9b; }
+        .rank-3 { background: #c47a3a; }
 
-        .rank-2 {
-            background: #9b9b9b;
-        }
+        .result h3 { font-size: 15px; font-weight: 700; color: #1a1a1b; line-height: 1.35; }
+        .result p.body-text { font-size: 13.5px; color: #444; line-height: 1.5; margin-bottom: 10px; }
 
-        .rank-3 {
-            background: #c47a3a;
-        }
-
-        .result h3 {
-            font-size: 15px;
-            font-weight: 700;
-            color: #1a1a1b;
-            line-height: 1.35;
-        }
-
-        .result p.body-text {
-            font-size: 13.5px;
-            color: #444;
-            line-height: 1.5;
-            margin-bottom: 10px;
-        }
-
-        /* ── Tags row ── */
-        .tags-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-bottom: 10px;
-        }
+        .tags-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 
         .tag {
             display: inline-flex;
@@ -253,62 +364,20 @@
             font-size: 11px;
             font-weight: 600;
             white-space: nowrap;
-            letter-spacing: 0.2px;
         }
 
-        /* Education level — blue */
-        .tag-edu {
-            background: #e8f0fe;
-            color: #1a56db;
-            border: 1px solid #c3d3f9;
-        }
+        .tag-edu      { background: #e8f0fe; color: #1a56db; border: 1px solid #c3d3f9; }
+        .tag-subject  { background: #f3e8ff; color: #7e22ce; border: 1px solid #ddd6fe; }
+        .tag-topic    { background: #e0f7fa; color: #006064; border: 1px solid #b2ebf2; }
+        .tag-emotion  { background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+        .tag-sarcasm  { background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; }
+        .tag-subjective { background: #fef9c3; color: #92400e; border: 1px solid #fde68a; }
+        .tag-objective  { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+        .tag-positive { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .tag-neutral  { background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db; }
+        .tag-negative { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 
-        /* Subject — purple */
-        .tag-subject {
-            background: #f3e8ff;
-            color: #7e22ce;
-            border: 1px solid #ddd6fe;
-        }
-
-        /* Subjectivity */
-        .tag-subjective {
-            background: #fef9c3;
-            color: #92400e;
-            border: 1px solid #fde68a;
-        }
-
-        .tag-objective {
-            background: #f0fdf4;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-        }
-
-        /* Per-post sentiment */
-        .tag-positive {
-            background: #dcfce7;
-            color: #15803d;
-            border: 1px solid #86efac;
-        }
-
-        .tag-neutral {
-            background: #f3f4f6;
-            color: #6b7280;
-            border: 1px solid #d1d5db;
-        }
-
-        .tag-negative {
-            background: #fee2e2;
-            color: #b91c1c;
-            border: 1px solid #fca5a5;
-        }
-
-        /* ── Score row ── */
-        .score-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
+        .score-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
         .tfidf-pill {
             display: inline-flex;
@@ -324,240 +393,363 @@
             white-space: nowrap;
         }
 
-        .tfidf-pill .pill-label {
-            font-weight: 400;
-            opacity: 0.7;
-        }
+        .tfidf-pill .pill-label { font-weight: 400; opacity: 0.7; }
+        .score-bar-wrap { width: 80px; height: 5px; background: #ece9e4; border-radius: 3px; overflow: hidden; }
+        .score-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #f5a623, #ff4500); }
 
-        .score-bar-wrap {
-            width: 80px;
-            height: 5px;
-            background: #ece9e4;
-            border-radius: 3px;
-            overflow: hidden;
-        }
+        .meta { font-size: 12px; color: #888; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .meta a { color: #ff4500; text-decoration: none; font-weight: 600; }
+        .meta a:hover { text-decoration: underline; }
+        .meta-dot { color: #ccc; }
 
-        .score-bar-fill {
-            height: 100%;
-            border-radius: 3px;
-            background: linear-gradient(90deg, #f5a623, #ff4500);
-        }
+        .pagination { display: flex; align-items: center; gap: 10px; margin: 22px 0; }
+        .pagination a { padding: 8px 18px; background: #ff4500; color: #fff; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: 600; }
+        .pagination a:hover { background: #d93c00; }
+        .pagination span { color: #888; font-size: 14px; }
 
-        .meta {
-            font-size: 12px;
-            color: #888;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .meta a {
-            color: #ff4500;
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .meta a:hover {
-            text-decoration: underline;
-        }
-
-        .meta-dot {
-            color: #ccc;
-        }
-
-        /* ── Pagination ── */
-        .pagination {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 22px 0;
-        }
-
-        .pagination a {
-            padding: 8px 18px;
-            background: #ff4500;
-            color: #fff;
-            text-decoration: none;
-            border-radius: 5px;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        .pagination a:hover {
-            background: #d93c00;
-        }
-
-        .pagination span {
-            color: #888;
-            font-size: 14px;
-        }
-
-        .no-results {
-            text-align: center;
-            padding: 40px 0;
-            color: #888;
-            font-size: 15px;
-        }
+        .no-results { text-align: center; padding: 40px 0; color: #888; font-size: 15px; }
     </style>
 </head>
 
 <body>
 
-    <h1>🔍 Reddit Opinion Search</h1>
-
-    <form class="search-form" method="get">
-        <input type="text" name="q" value="{{ query }}" placeholder="e.g. A level math difficult">
-        <button type="submit">Search</button>
-    </form>
-
-    {% if query %}
-    <div class="stats-bar">
-        <span>Found <strong>{{ num_found }}</strong> results in {{ qtime }}ms</span>
-        {% if engine_used == "tfidf" %}
-        <span class="engine-badge engine-tfidf">⚡ Relevance Ranked</span>
-        {% elif engine_used == "solr" %}
-        <span class="engine-badge engine-solr">☁ Solr Fallback</span>
+    {% csrf_token %}
+    <!-- ── Sidebar ── -->
+    <div class="sidebar">
+        <h2>Recent Searches</h2>
+        {% for item in history %}
+        <div class="history-row">
+            <a class="history-item {% if item == query %}active{% endif %}" href="/?q={{ item }}">{{ item }}</a>
+            <button class="remove-btn" onclick="removeHistory('{{ item }}')">✕</button>
+        </div>
+        {% empty %}
+        <p class="no-history">No recent searches</p>
+        {% endfor %}
+        {% if history %}
+        <div style="padding: 10px 14px; margin-top: 8px; border-top: 1px solid #2a2a2a;">
+            <button onclick="clearHistory()" style="background:none;border:none;color:#555;font-size:12px;cursor:pointer;padding:0;">
+                Clear all history
+            </button>
+        </div>
         {% endif %}
     </div>
 
-    {% if engine_used == "tfidf" %}
-    <div class="info-box">
-        Results are ranked by relevance to your query. Each post is given a score from
-        <strong>0.00</strong> (no match) to <strong>1.00</strong> (perfect match) based on
-        how closely its words align with your search terms.
-    </div>
-    {% endif %}
-    {% endif %}
+    <!-- ── Main ── -->
+    <div class="main">
 
-    {% if sentiment %}
-    <div class="sentiment-box">
-        <h3>Sentiment breakdown for "<strong>{{ query }}</strong>"
-            ({{ sentiment.total }} posts)</h3>
-        <div class="sentiment-bar">
-            <div class="bar-positive" data-w="{{ sentiment.positive }}"></div>
-            <div class="bar-neutral" data-w="{{ sentiment.neutral }}"></div>
-            <div class="bar-negative" data-w="{{ sentiment.negative }}"></div>
-        </div>
-        <div class="sentiment-labels">
-            <span class="label-positive">▲ Positive {{ sentiment.positive }}%</span>
-            <span class="label-neutral">● Neutral {{ sentiment.neutral }}%</span>
-            <span class="label-negative">▼ Negative {{ sentiment.negative }}%</span>
-        </div>
-    </div>
-    {% endif %}
+        <h1>🔍 Reddit Opinion Search</h1>
 
-    {% for result in results %}
-    <div class="result">
+        <form class="search-form" method="get" id="search-form">
+            <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="e.g. A level math difficult">
+            {% for field, values in active_filters.items %}
+                {% for val in values %}
+                <input type="hidden" name="{{ field }}" value="{{ val }}">
+                {% endfor %}
+            {% endfor %}
+            <button type="submit">Search</button>
+        </form>
 
-        <!-- rank badge + title -->
-        <div class="result-header">
-            <div class="rank-badge rank-{{ result.rank }}">#{{ result.rank }}</div>
-            <h3>{{ result.title }}</h3>
+        <div class="filter-toggle" id="filter-toggle">
+            🔧 Filters
+            {% if active_filters %}
+            <span style="background:#ff4500;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;">{{ active_filters|length }} active</span>
+            {% endif %}
+            <span class="arrow">▼</span>
         </div>
 
-        <!-- body preview -->
-        <p class="body-text">{{ result.body|truncatechars:300 }}</p>
+        <div class="filter-panel" id="filter-panel">
+            <form method="get" id="filter-form">
+                <input type="hidden" name="q" id="filter-q" value="{{ query }}">
 
-        <!-- ── Tags ── -->
-        <div class="tags-row">
+                <div class="filter-groups">
 
-            <!-- Education level -->
-            {% if result.education_level %}
-            {% if result.education_level == "alevel" %}
-            <span class="tag tag-edu">🎓 A Level</span>
-            {% elif result.education_level == "olevel" %}
-            <span class="tag tag-edu">🎓 O Level</span>
-            {% elif result.education_level == "nlevel" %}
-            <span class="tag tag-edu">🎓 N Level</span>
-            {% elif result.education_level == "psle" %}
-            <span class="tag tag-edu">🎓 PSLE</span>
-            {% elif result.education_level == "jc" %}
-            <span class="tag tag-edu">🎓 JC</span>
-            {% elif result.education_level == "poly" %}
-            <span class="tag tag-edu">🎓 Polytechnic</span>
-            {% elif result.education_level == "ite" %}
-            <span class="tag tag-edu">🎓 ITE</span>
-            {% elif result.education_level == "uni" %}
-            <span class="tag tag-edu">🎓 University</span>
-            {% elif result.education_level == "masters" %}
-            <span class="tag tag-edu">🎓 Masters</span>
-            {% elif result.education_level == "general" %}
-            <span class="tag tag-edu">🎓 General</span>
-            {% endif %}
-            {% endif %}
+                    <div class="filter-group">
+                        <h4>Education Level</h4>
+                        {% for val, label in filter_options.education_level %}
+                        <label>
+                            <input type="checkbox" name="education_level" value="{{ val }}"
+                                {% if val in active_filters.education_level %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                        {% endfor %}
+                    </div>
 
-            <!-- Subject (hidden if "none") -->
-            {% if result.subject and result.subject != "none" %}
-            <span class="tag tag-subject">📚 {{ result.subject|capfirst }}</span>
-            {% endif %}
+                    <div class="filter-group">
+                        <h4>Subject</h4>
+                        {% for val, label in filter_options.subject %}
+                        <label>
+                            <input type="checkbox" name="subject" value="{{ val }}"
+                                {% if val in active_filters.subject %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                        {% endfor %}
+                    </div>
 
-            <!-- Subjectivity -->
-            {% if result.subjectivity == "subjective" %}
-            <span class="tag tag-subjective">💬 Subjective</span>
-            {% elif result.subjectivity == "objective" %}
-            <span class="tag tag-objective">📋 Objective</span>
-            {% endif %}
+                    <div class="filter-group">
+                        <h4>Topic</h4>
+                        {% for val, label in filter_options.topic %}
+                        <label>
+                            <input type="checkbox" name="topic" value="{{ val }}"
+                                {% if val in active_filters.topic %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                        {% endfor %}
+                    </div>
 
-            <!-- Per-post sentiment from Output_2: "1"=positive, "0"=neutral, "-1"=negative -->
-            {% if result.Output_2 == "1" %}
-            <span class="tag tag-positive">▲ Positive</span>
-            {% elif result.Output_2 == "-1" %}
-            <span class="tag tag-negative">▼ Negative</span>
-            {% else %}
-            <span class="tag tag-neutral">● Neutral</span>
-            {% endif %}
+                    <div class="filter-group">
+                        <h4>Emotion</h4>
+                        {% for val, label in filter_options.emotion %}
+                        <label>
+                            <input type="checkbox" name="emotion" value="{{ val }}"
+                                {% if val in active_filters.emotion %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                        {% endfor %}
+                    </div>
 
+                    <div class="filter-group">
+                        <h4>Subjectivity</h4>
+                        {% for val, label in filter_options.subjectivity %}
+                        <label>
+                            <input type="checkbox" name="subjectivity" value="{{ val }}"
+                                {% if val in active_filters.subjectivity %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                        {% endfor %}
+
+                        <h4 style="margin-top:12px;">Sarcasm</h4>
+                        {% for val, label in filter_options.sarcasm %}
+                        <label>
+                            <input type="checkbox" name="sarcasm" value="{{ val }}"
+                                {% if val in active_filters.sarcasm %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                        {% endfor %}
+                    </div>
+
+                </div>
+
+                <div class="filter-actions">
+                    <button type="submit" class="btn-apply">Apply Filters</button>
+                    <a href="?q={{ query }}" class="btn-clear">Clear Filters</a>
+                </div>
+            </form>
         </div>
 
-        <!-- score + meta row -->
-        <div class="score-row">
-            {% if result.tfidf_score is not None %}
-            <span class="tfidf-pill">
-                <span class="pill-label">TF-IDF</span>
-                {{ result.tfidf_score }}
-                <span class="score-bar-wrap">
-                    <span class="score-bar-fill" data-w="{{ result.tfidf_score_pct }}"></span>
+        {% if active_filters %}
+        <div class="active-filters">
+            {% for field, values in active_filters.items %}
+                {% if field == "education_level" %}{% with label="Education Level" %}{% for val in values %}
+                <span class="active-pill">{{ label }}: {{ val }} <button class="remove-pill" onclick="removePill('{{ field }}', '{{ val }}')">✕</button></span>
+                {% endfor %}{% endwith %}
+                {% elif field == "subject" %}{% with label="Subject" %}{% for val in values %}
+                <span class="active-pill">{{ label }}: {{ val }} <button class="remove-pill" onclick="removePill('{{ field }}', '{{ val }}')">✕</button></span>
+                {% endfor %}{% endwith %}
+                {% elif field == "topic" %}{% with label="Topic" %}{% for val in values %}
+                <span class="active-pill">{{ label }}: {{ val }} <button class="remove-pill" onclick="removePill('{{ field }}', '{{ val }}')">✕</button></span>
+                {% endfor %}{% endwith %}
+                {% elif field == "emotion" %}{% with label="Emotion" %}{% for val in values %}
+                <span class="active-pill">{{ label }}: {{ val }} <button class="remove-pill" onclick="removePill('{{ field }}', '{{ val }}')">✕</button></span>
+                {% endfor %}{% endwith %}
+                {% elif field == "subjectivity" %}{% with label="Subjectivity" %}{% for val in values %}
+                <span class="active-pill">{{ label }}: {{ val }} <button class="remove-pill" onclick="removePill('{{ field }}', '{{ val }}')">✕</button></span>
+                {% endfor %}{% endwith %}
+                {% elif field == "sarcasm" %}{% with label="Sarcasm" %}{% for val in values %}
+                <span class="active-pill">{{ label }}: {{ val }} <button class="remove-pill" onclick="removePill('{{ field }}', '{{ val }}')">✕</button></span>
+                {% endfor %}{% endwith %}
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if query %}
+        <div class="stats-bar">
+            <span>Found <strong>{{ num_found }}</strong> results in {{ qtime }}ms</span>
+            {% if engine_used == "tfidf" %}
+            <span class="engine-badge engine-tfidf">⚡ Relevance Ranked</span>
+            {% elif engine_used == "solr" %}
+            <span class="engine-badge engine-solr">☁ Solr Fallback</span>
+            {% endif %}
+        </div>
+
+        {% if engine_used == "tfidf" %}
+        <div class="info-box">
+            Results are ranked by relevance to your query. Each post is scored from
+            <strong>0.00</strong> (no match) to <strong>1.00</strong> (perfect match).
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% if sentiment %}
+        <div class="sentiment-box">
+            <h3>Sentiment breakdown for "<strong>{{ query }}</strong>" ({{ sentiment.total }} posts)</h3>
+            <div class="sentiment-bar">
+                <div class="bar-positive" data-w="{{ sentiment.positive }}"></div>
+                <div class="bar-neutral"  data-w="{{ sentiment.neutral }}"></div>
+                <div class="bar-negative" data-w="{{ sentiment.negative }}"></div>
+            </div>
+            <div class="sentiment-labels">
+                <span class="label-positive">▲ Positive {{ sentiment.positive }}%</span>
+                <span class="label-neutral">● Neutral {{ sentiment.neutral }}%</span>
+                <span class="label-negative">▼ Negative {{ sentiment.negative }}%</span>
+            </div>
+        </div>
+        {% endif %}
+
+        {% for result in results %}
+        <div class="result">
+            <div class="result-header">
+                <div class="rank-badge rank-{{ result.rank }}">#{{ result.rank }}</div>
+                <h3>{{ result.title }}</h3>
+            </div>
+
+            <p class="body-text">{{ result.body|truncatechars:300 }}</p>
+
+            <div class="tags-row">
+                {% if result.education_level %}
+                    {% if result.education_level == "alevel" %}<span class="tag tag-edu">🎓 A Level</span>
+                    {% elif result.education_level == "olevel" %}<span class="tag tag-edu">🎓 O Level</span>
+                    {% elif result.education_level == "nlevel" %}<span class="tag tag-edu">🎓 N Level</span>
+                    {% elif result.education_level == "psle" %}<span class="tag tag-edu">🎓 PSLE</span>
+                    {% elif result.education_level == "jc" %}<span class="tag tag-edu">🎓 JC</span>
+                    {% elif result.education_level == "poly" %}<span class="tag tag-edu">🎓 Polytechnic</span>
+                    {% elif result.education_level == "ite" %}<span class="tag tag-edu">🎓 ITE</span>
+                    {% elif result.education_level == "uni" %}<span class="tag tag-edu">🎓 University</span>
+                    {% elif result.education_level == "masters" %}<span class="tag tag-edu">🎓 Masters</span>
+                    {% elif result.education_level == "general" %}<span class="tag tag-edu">🎓 General</span>
+                    {% endif %}
+                {% endif %}
+
+                {% if result.subject and result.subject != "none" %}
+                <span class="tag tag-subject">📚 {{ result.subject|capfirst }}</span>
+                {% endif %}
+
+                {% if result.topic and result.topic != "other" %}
+                <span class="tag tag-topic">🏷 {{ result.topic|capfirst }}</span>
+                {% endif %}
+
+                {% if result.emotion and result.emotion != "neutral" %}
+                <span class="tag tag-emotion">😊 {{ result.emotion|capfirst }}</span>
+                {% endif %}
+
+                {% if result.sarcasm == "sarcastic" %}
+                <span class="tag tag-sarcasm">😏 Sarcastic</span>
+                {% endif %}
+
+                {% if result.subjectivity == "subjective" %}
+                <span class="tag tag-subjective">💬 Subjective</span>
+                {% elif result.subjectivity == "objective" %}
+                <span class="tag tag-objective">📋 Objective</span>
+                {% endif %}
+
+                {% if result.Output_2 == "1" %}<span class="tag tag-positive">▲ Positive</span>
+                {% elif result.Output_2 == "-1" %}<span class="tag tag-negative">▼ Negative</span>
+                {% else %}<span class="tag tag-neutral">● Neutral</span>
+                {% endif %}
+            </div>
+
+            <div class="score-row">
+                {% if result.tfidf_score is not None %}
+                <span class="tfidf-pill">
+                    <span class="pill-label">TF-IDF</span>
+                    {{ result.tfidf_score }}
+                    <span class="score-bar-wrap">
+                        <span class="score-bar-fill" data-w="{{ result.tfidf_score_pct }}"></span>
+                    </span>
                 </span>
-            </span>
-            {% endif %}
+                {% endif %}
 
-            <span class="meta">
-                <span>r/{{ result.subreddit }}</span>
-                <span class="meta-dot">·</span>
-                <span>u/{{ result.author }}</span>
-                <span class="meta-dot">·</span>
-                <span>↑ {{ result.score }}</span>
-                <span class="meta-dot">·</span>
-                <a href="{{ result.url }}" target="_blank" rel="noopener">View on Reddit ↗</a>
-            </span>
+                <span class="meta">
+                    <span>r/{{ result.subreddit }}</span>
+                    <span class="meta-dot">·</span>
+                    <span>u/{{ result.author }}</span>
+                    <span class="meta-dot">·</span>
+                    <span>↑ {{ result.score }}</span>
+                    <span class="meta-dot">·</span>
+                    <a href="{{ result.url }}" target="_blank" rel="noopener">View on Reddit ↗</a>
+                </span>
+            </div>
         </div>
+        {% empty %}
+        {% if query %}
+        <div class="no-results">
+            <p>No results found for "<strong>{{ query }}</strong>".</p>
+            <p style="margin-top:8px;font-size:13px;">Try a shorter or different query.</p>
+        </div>
+        {% endif %}
+        {% endfor %}
 
-    </div>
-    {% empty %}
-    {% if query %}
-    <div class="no-results">
-        <p>No results found for "<strong>{{ query }}</strong>".</p>
-        <p style="margin-top:8px; font-size:13px;">Try a shorter or different query.</p>
-    </div>
-    {% endif %}
-    {% endfor %}
+        {% if num_pages > 1 %}
+        <div class="pagination">
+            {% if prev_page %}
+            <a href="?q={{ query }}&page={{ prev_page }}{% for field, values in active_filters.items %}{% for val in values %}&{{ field }}={{ val }}{% endfor %}{% endfor %}">← Previous</a>
+            {% endif %}
+            <span>Page {{ page }} of {{ num_pages }}</span>
+            {% if next_page %}
+            <a href="?q={{ query }}&page={{ next_page }}{% for field, values in active_filters.items %}{% for val in values %}&{{ field }}={{ val }}{% endfor %}{% endfor %}">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
 
-    {% if num_pages > 1 %}
-    <div class="pagination">
-        {% if prev_page %}<a href="?q={{ query }}&page={{ prev_page }}">← Previous</a>{% endif %}
-        <span>Page {{ page }} of {{ num_pages }}</span>
-        {% if next_page %}<a href="?q={{ query }}&page={{ next_page }}">Next →</a>{% endif %}
-    </div>
-    {% endif %}
+    </div><!-- end .main -->
 
     <script>
-        /* Set bar widths from data-w to avoid VS Code inline-style linter warnings */
-        document.querySelectorAll('[data-w]').forEach(function (el) {
+        document.querySelectorAll('[data-w]').forEach(function(el) {
             el.style.width = el.getAttribute('data-w') + '%';
         });
+
+        var toggle      = document.getElementById('filter-toggle');
+        var panel       = document.getElementById('filter-panel');
+        var filterQ     = document.getElementById('filter-q');
+        var searchInput = document.getElementById('search-input');
+
+        searchInput.addEventListener('input', function() {
+            filterQ.value = this.value;
+        });
+
+        toggle.addEventListener('click', function() {
+            toggle.classList.toggle('open');
+            panel.classList.toggle('open');
+        });
+
+        function removeHistory(query) {
+            fetch('/remove-history/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': document.cookie.match(/csrftoken=([^;]+)/)[1]
+                },
+                body: 'query=' + encodeURIComponent(query)
+            }).then(function() {
+                var params = new URLSearchParams(window.location.search);
+                params.set('no_history', '1');
+                window.location.search = params.toString();
+            });
+        }
+
+        function clearHistory() {
+            fetch('/clear-history/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': document.cookie.match(/csrftoken=([^;]+)/)[1]
+                },
+                body: ''
+            }).then(function() {
+                var params = new URLSearchParams(window.location.search);
+                params.set('no_history', '1');
+                window.location.search = params.toString();
+            });
+        }
+        
+        function removePill(field, val) {
+            var params = new URLSearchParams(window.location.search);
+            var existing = params.getAll(field).filter(function(v) { return v !== val; });
+            params.delete(field);
+            existing.forEach(function(v) { params.append(field, v); });
+            window.location.search = params.toString();
+        }
     </script>
 
 </body>
-
 </html>
