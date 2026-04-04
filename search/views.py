@@ -16,6 +16,7 @@ import requests
 
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 logger = logging.getLogger(__name__)
 
@@ -213,12 +214,16 @@ def _tfidf_search(query, page, rows, filters):
     t0 = time.time()
     engine = get_engine()
     expanded = expand_query(query) if any(w in SYNONYM_GROUPS for w in query.lower().split()) else query
-    all_hits = engine.search(expanded, top_k=500)
+
+    # Use total corpus size so num_found is never artificially capped
+    all_hits = engine.search(expanded, top_k=len(engine.docs))
     all_hits = apply_filters(all_hits, filters)
+
     qtime = round((time.time() - t0) * 1000)
     num_found = len(all_hits)
     start = (page - 1) * rows
     page_hits = all_hits[start: start + rows]
+
     results = []
     for rank, (doc, score) in enumerate(page_hits, start=start + 1):
         results.append({
@@ -227,6 +232,7 @@ def _tfidf_search(query, page, rows, filters):
             "tfidf_score_pct": round(score * 100, 1),
             "rank":            rank,
         })
+
     sentiment = engine.sentiment_stats(all_hits)
     return results, num_found, qtime, sentiment
 
@@ -259,6 +265,7 @@ def _solr_search(query, page, rows, filters):
     return results, num_found, qtime, sentiment
 
 
+@ensure_csrf_cookie
 def search(request):
     query     = request.GET.get("q", "").strip()
     page      = max(1, int(request.GET.get("page", 1)))
