@@ -2,12 +2,8 @@
 search/views.py
 ================
 Django search view — powered by TF-IDF lnc.ltc ranked retrieval
-with Solr as fallback, filter support, and search history.
-ADDED:
-search/views.py — Extended from original with: synonym expansion for SG education terms (emath/e math etc.),
-filter support (education level, subject, topic, emotion, subjectivity, sarcasm), and session-based search
-history with add/remove/clear functionality.
-
+with Solr as fallback, filter support, search history, and
+spell correction (Levenshtein + trigram pre-filtering, Lecture 3).
 """
 
 import time
@@ -16,7 +12,6 @@ import requests
 
 from django.shortcuts import render
 from django.http import JsonResponse
-from django.views.decorators.csrf import ensure_csrf_cookie
 
 logger = logging.getLogger(__name__)
 
@@ -214,16 +209,12 @@ def _tfidf_search(query, page, rows, filters):
     t0 = time.time()
     engine = get_engine()
     expanded = expand_query(query) if any(w in SYNONYM_GROUPS for w in query.lower().split()) else query
-
-    # Use total corpus size so num_found is never artificially capped
-    all_hits = engine.search(expanded, top_k=len(engine.docs))
+    all_hits = engine.search(expanded, top_k=500)
     all_hits = apply_filters(all_hits, filters)
-
     qtime = round((time.time() - t0) * 1000)
     num_found = len(all_hits)
     start = (page - 1) * rows
     page_hits = all_hits[start: start + rows]
-
     results = []
     for rank, (doc, score) in enumerate(page_hits, start=start + 1):
         results.append({
@@ -232,7 +223,6 @@ def _tfidf_search(query, page, rows, filters):
             "tfidf_score_pct": round(score * 100, 1),
             "rank":            rank,
         })
-
     sentiment = engine.sentiment_stats(all_hits)
     return results, num_found, qtime, sentiment
 
@@ -265,17 +255,43 @@ def _solr_search(query, page, rows, filters):
     return results, num_found, qtime, sentiment
 
 
-@ensure_csrf_cookie
+# ── Spell-correction helper ──────────────────────────────────────────────────
+
+def _get_spell_suggestion(query: str):
+    """
+    Return a spelling suggestion for *query*, or None.
+
+    Strategy (as described in the slides):
+      • Run the raw query first.
+      • Ask the SpellCorrector whether any token looks misspelled.
+      • Only surface the suggestion — never silently rewrite the query —
+        so the user stays in control (mirrors Google's "Did you mean?" UX).
+    """
+    try:
+        from search.spell_correction import get_corrector
+        corrector = get_corrector()
+        suggestion = corrector.correct_query(query)
+        # Don't show a suggestion if it's identical to the original
+        if suggestion and suggestion.lower() != query.lower().strip():
+            return suggestion
+    except Exception as exc:
+        logger.warning("[SpellCorrect] Suggestion failed: %s", exc)
+    return None
+
+
+# ── Main search view ─────────────────────────────────────────────────────────
+
 def search(request):
-    query     = request.GET.get("q", "").strip()
-    page      = max(1, int(request.GET.get("page", 1)))
-    rows      = 10
-    results   = []
-    num_found = 0
-    qtime     = 0
-    num_pages = 0
-    sentiment = None
+    query       = request.GET.get("q", "").strip()
+    page        = max(1, int(request.GET.get("page", 1)))
+    rows        = 10
+    results     = []
+    num_found   = 0
+    qtime       = 0
+    num_pages   = 0
+    sentiment   = None
     engine_used = None
+    did_you_mean = None          # ← spell-correction suggestion
 
     # Search history
     if "history" not in request.session:
@@ -288,7 +304,7 @@ def search(request):
             filters[field] = selected
 
     if query:
-        # Only update history if user explicitly searched (not a reload after remove)
+        # Update history unless this is a reload-after-remove
         if not request.GET.get('no_history'):
             history = request.session["history"]
             if query in history:
@@ -297,6 +313,7 @@ def search(request):
             request.session["history"] = history[:20]
             request.session.modified = True
 
+        # ── Primary search ────────────────────────────────────────────────
         try:
             results, num_found, qtime, sentiment = _tfidf_search(query, page, rows, filters)
             engine_used = "tfidf"
@@ -309,6 +326,14 @@ def search(request):
                 logger.error("[Solr] Fallback also failed: %s", solr_exc)
 
         num_pages = (num_found + rows - 1) // rows
+
+        # ── Spell correction ──────────────────────────────────────────────
+        # Surface a "Did you mean?" suggestion whenever:
+        #   (a) results are zero or very few, OR
+        #   (b) the corrector detects a likely misspelling regardless.
+        # The suggestion is shown as a clickable link — we never force a
+        # redirect so the user's original intent is always respected.
+        did_you_mean = _get_spell_suggestion(query)
 
     return render(request, "search/search.html", {
         "results":        results,
@@ -324,6 +349,7 @@ def search(request):
         "filter_options": FILTER_OPTIONS,
         "active_filters": filters,
         "history":        request.session.get("history", []),
+        "did_you_mean":   did_you_mean,   # ← new context variable
     })
 
 
@@ -336,6 +362,7 @@ def remove_history(request):
             request.session["history"] = history
             request.session.modified = True
     return JsonResponse({"status": "ok"})
+
 
 def clear_history(request):
     if request.method == 'POST':
