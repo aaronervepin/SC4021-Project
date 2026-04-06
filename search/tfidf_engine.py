@@ -26,7 +26,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 logger = logging.getLogger(__name__)
 
 # ── Path resolution: two levels up from this file → project root ────────────
-CSV_PATH = '/Users/a/Documents/School/Year 2/Sem 2/SC4021/crawled_enriched.csv'
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
+CSV_PATH = os.path.join(_PROJECT_ROOT, 'data', 'crawled_enriched.csv')
 
 
 # ── lnc vectorizer (documents) ──────────────────────────────────────────────

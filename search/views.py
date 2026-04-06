@@ -6,9 +6,13 @@ with Solr as fallback, filter support, search history, and
 spell correction (Levenshtein + trigram pre-filtering, Lecture 3).
 """
 
+import re
 import time
+import math
 import logging
+import datetime
 import requests
+from collections import Counter
 
 from django.shortcuts import render
 from django.http import JsonResponse
@@ -183,9 +187,7 @@ def _sentiment_from_docs(docs):
     }
 
 
-def apply_filters(hits, filters):
-    if not filters:
-        return hits
+def apply_filters(hits, filters, date_from=None, date_to=None):
     filtered = []
     for doc, score in hits:
         if filters.get("education_level") and doc.get("education_level", "").strip() not in filters["education_level"]:
@@ -200,31 +202,58 @@ def apply_filters(hits, filters):
             continue
         if filters.get("sarcasm") and doc.get("sarcasm", "").strip() not in filters["sarcasm"]:
             continue
+        # Timeline filter
+        if date_from or date_to:
+            try:
+                ts = float(doc.get("created_utc", 0))
+                if date_from and ts < date_from:
+                    continue
+                if date_to and ts > date_to:
+                    continue
+            except (ValueError, TypeError):
+                continue
         filtered.append((doc, score))
     return filtered
 
 
-def _tfidf_search(query, page, rows, filters):
+def _tfidf_search(query, page, rows, filters, date_from=None, date_to=None, sort_by="relevance"):
     from search.tfidf_engine import get_engine
     t0 = time.time()
     engine = get_engine()
     expanded = expand_query(query) if any(w in SYNONYM_GROUPS for w in query.lower().split()) else query
     all_hits = engine.search(expanded, top_k=500)
-    all_hits = apply_filters(all_hits, filters)
+    all_hits = apply_filters(all_hits, filters, date_from, date_to)
+
+    # Sort results
+    if sort_by == "date_newest":
+        all_hits.sort(key=lambda x: float(x[0].get("created_utc", 0)), reverse=True)
+    elif sort_by == "date_oldest":
+        all_hits.sort(key=lambda x: float(x[0].get("created_utc", 0)))
+    elif sort_by == "upvotes":
+        all_hits.sort(key=lambda x: int(x[0].get("score", 0)), reverse=True)
+    # else: default "relevance" — already sorted by TF-IDF score
+
     qtime = round((time.time() - t0) * 1000)
     num_found = len(all_hits)
     start = (page - 1) * rows
     page_hits = all_hits[start: start + rows]
     results = []
     for rank, (doc, score) in enumerate(page_hits, start=start + 1):
+        # Format date for display
+        try:
+            date_str = datetime.datetime.fromtimestamp(float(doc.get("created_utc", 0))).strftime("%d %b %Y")
+        except (ValueError, TypeError, OSError):
+            date_str = ""
         results.append({
             **doc,
             "tfidf_score":     score,
             "tfidf_score_pct": round(score * 100, 1),
             "rank":            rank,
+            "date_display":    date_str,
         })
     sentiment = engine.sentiment_stats(all_hits)
-    return results, num_found, qtime, sentiment
+    word_cloud = _build_word_cloud(all_hits)
+    return results, num_found, qtime, sentiment, word_cloud
 
 
 def _solr_search(query, page, rows, filters):
@@ -253,6 +282,45 @@ def _solr_search(query, page, rows, filters):
     all_docs = requests.get(SOLR_URL, params=all_params, timeout=5).json()["response"]["docs"]
     sentiment = _sentiment_from_docs(all_docs)
     return results, num_found, qtime, sentiment
+
+
+# ── Word cloud helper ────────────────────────────────────────────────────────
+
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+
+# Extend sklearn's stopwords with Reddit/web-specific noise
+_STOPWORDS = ENGLISH_STOP_WORDS.union({
+    "amp", "https", "http", "www", "com", "reddit", "deleted", "removed",
+    "really", "just", "like", "got", "get", "going", "don", "didn", "doesn",
+})
+
+
+def _build_word_cloud(hits, max_words=40):
+    """Extract top terms from result bodies for word cloud display."""
+    word_counts = Counter()
+    for doc, _ in hits:
+        text = (doc.get("body") or "") + " " + (doc.get("title") or "")
+        words = re.findall(r'[a-zA-Z]{3,}', text.lower())
+        word_counts.update(w for w in words if w not in _STOPWORDS)
+
+    if not word_counts:
+        return []
+
+    top = word_counts.most_common(max_words)
+    max_count = top[0][1]
+    cloud = []
+    for word, count in top:
+        size = 12 + round(24 * math.log(1 + count) / math.log(1 + max_count))
+        cloud.append({"word": word, "count": count, "size": size})
+
+    import random
+    random.shuffle(cloud)
+    colors = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6", "#e67e22",
+              "#1abc9c", "#e84393", "#0984e3", "#d63031", "#6c5ce7",
+              "#00b894", "#fdcb6e", "#e17055", "#0652DD", "#009432"]
+    for i, item in enumerate(cloud):
+        item["color"] = colors[i % len(colors)]
+    return cloud
 
 
 # ── Spell-correction helper ──────────────────────────────────────────────────
@@ -292,6 +360,7 @@ def search(request):
     sentiment   = None
     engine_used = None
     did_you_mean = None          # ← spell-correction suggestion
+    word_cloud   = []
 
     # Search history
     if "history" not in request.session:
@@ -302,6 +371,23 @@ def search(request):
         selected = request.GET.getlist(field)
         if selected:
             filters[field] = selected
+
+    # Timeline search — parse date range
+    date_from_str = request.GET.get("date_from", "").strip()
+    date_to_str = request.GET.get("date_to", "").strip()
+    date_from_ts = None
+    date_to_ts = None
+    try:
+        if date_from_str:
+            date_from_ts = datetime.datetime.strptime(date_from_str, "%Y-%m-%d").timestamp()
+        if date_to_str:
+            date_to_ts = datetime.datetime.strptime(date_to_str, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            ).timestamp()
+    except ValueError:
+        pass
+
+    sort_by = request.GET.get("sort", "relevance")
 
     if query:
         # Update history unless this is a reload-after-remove
@@ -315,7 +401,7 @@ def search(request):
 
         # ── Primary search ────────────────────────────────────────────────
         try:
-            results, num_found, qtime, sentiment = _tfidf_search(query, page, rows, filters)
+            results, num_found, qtime, sentiment, word_cloud = _tfidf_search(query, page, rows, filters, date_from_ts, date_to_ts, sort_by)
             engine_used = "tfidf"
         except Exception as exc:
             logger.warning("[TF-IDF] Engine failed (%s); falling back to Solr.", exc)
@@ -349,8 +435,28 @@ def search(request):
         "filter_options": FILTER_OPTIONS,
         "active_filters": filters,
         "history":        request.session.get("history", []),
-        "did_you_mean":   did_you_mean,   # ← new context variable
+        "did_you_mean":   did_you_mean,
+        "date_from":      date_from_str,
+        "date_to":        date_to_str,
+        "word_cloud":     word_cloud,
+        "sort_by":        sort_by,
     })
+
+
+def autocomplete(request):
+    """Return JSON list of vocabulary terms matching the prefix."""
+    prefix = request.GET.get("term", "").strip().lower()
+    if len(prefix) < 2:
+        return JsonResponse([], safe=False)
+    try:
+        from search.tfidf_engine import get_engine
+        engine = get_engine()
+        vocab = engine._doc_vec.vocabulary_
+        matches = [w for w in vocab if w.startswith(prefix) and " " not in w]
+        matches.sort(key=lambda w: (-vocab[w], w))  # sort by frequency (index)
+        return JsonResponse(matches[:8], safe=False)
+    except Exception:
+        return JsonResponse([], safe=False)
 
 
 def remove_history(request):
