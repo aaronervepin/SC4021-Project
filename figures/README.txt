@@ -1,0 +1,15 @@
+# Visualization Figures for report_final.md
+
+This package contains professional chart conversions of the markdown tables in the report.
+
+Files:
+01_inter_annotator_agreement_heatmap.png
+02_label_distribution_stacked_bars.png
+03_sentiment_model_comparison_grouped_bar.png
+04_sentiment_per_class_metrics.png
+05_subjectivity_tradeoff_bubble.png
+06_sarcasm_detection_failure_bar.png
+07_scalability_speed_vs_training_scatter.png
+08_ablation_study_waterfall.png
+09_innovation_gain_horizontal_bar.png
+contact_sheet.png
