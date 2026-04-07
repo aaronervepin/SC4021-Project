@@ -99,22 +99,28 @@
             display: flex;
             gap: 8px;
             margin-bottom: 12px;
-        }
-
-        .search-form input[type=text] {
-            flex: 1;
-            padding: 11px 14px;
-            font-size: 15px;
+            
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
             border: 2px solid #ddd;
-            border-radius: 6px;
-            outline: none;
             transition: border-color 0.2s;
         }
 
-        .search-form input[type=text]:focus { border-color: #ff4500; }
+        .search-form:focus-within { border-color: #ff4500; }
+
+        .search-form input[type=text] {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 15px;
+            border: none;
+            outline: none;
+            min-width: 0;
+            background: transparent;
+        }
 
         /* ── Autocomplete ── */
-        .autocomplete-wrap { position: relative; flex: 1; }
+        .autocomplete-wrap { position: relative; flex: 1; min-width: 0; }
 
         .autocomplete-list {
             position: absolute;
@@ -144,7 +150,7 @@
         .autocomplete-item:hover, .autocomplete-item.active { background: #fff3f0; color: #ff4500; }
 
         .search-form button[type=submit] {
-            padding: 11px 22px;
+            padding: 12px 24px;
             font-size: 15px;
             font-weight: 700;
             background: #ff4500;
@@ -152,6 +158,8 @@
             border: none;
             border-radius: 6px;
             cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .search-form button[type=submit]:hover { background: #d93c00; }
@@ -188,7 +196,7 @@
         }
 
         .did-you-mean .dym-link {
-            color: #1a0dab;          /* classic Google-blue for familiarity */
+            color: #1a0dab;
             font-weight: 600;
             text-decoration: none;
             font-style: italic;
@@ -488,23 +496,16 @@
 
         .wordcloud-box h3 { font-size: 13px; color: #444; margin-bottom: 12px; }
 
-        .wordcloud {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            justify-content: center;
-            gap: 6px 10px;
-            line-height: 1.4;
+        .wordcloud-canvas-wrap {
+            width: 100%;
+            position: relative;
         }
 
-        .wordcloud span {
-            display: inline-block;
+        #wordcloud-canvas {
+            display: block;
+            width: 100%;
             cursor: pointer;
-            transition: opacity 0.15s;
-            font-weight: 600;
         }
-
-        .wordcloud span:hover { opacity: 0.7; }
 
         .result {
             background: #fff;
@@ -641,16 +642,16 @@
         <h1>🔍 Reddit Opinion Search</h1>
 
         <form class="search-form" method="get" id="search-form">
-            <div class="autocomplete-wrap">
-                <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="e.g. A level math difficult" autocomplete="off">
-                <div class="autocomplete-list" id="ac-list"></div>
-            </div>
             {% for field, values in active_filters.items %}
                 {% for val in values %}
                 <input type="hidden" name="{{ field }}" value="{{ val }}">
                 {% endfor %}
             {% endfor %}
-            <button type="submit">Search</button>
+            <div class="autocomplete-wrap">
+                <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="e.g. A level math difficult" autocomplete="off">
+                <div class="autocomplete-list" id="ac-list"></div>
+            </div>
+            <button type="submit">🔍 Search</button>
         </form>
 
         <!-- ── Did you mean? banner ── -->
@@ -836,11 +837,13 @@
         {% if word_cloud %}
         <div class="wordcloud-box">
             <h3>Top terms in results for "<strong>{{ query }}</strong>"</h3>
-            <div class="wordcloud">
+            <div class="wordcloud-canvas-wrap">
+                <canvas id="wordcloud-canvas"></canvas>
+            </div>
+            <!-- Hidden data for JS to read -->
+            <div id="wordcloud-data" style="display:none;">
                 {% for item in word_cloud %}
-                <span style="font-size:{{ item.size }}px; color:{{ item.color }};"
-                      title="{{ item.word }}: {{ item.count }} occurrences"
-                      onclick="document.getElementById('search-input').value='{{ item.word }}';document.getElementById('search-form').submit();">{{ item.word }}</span>
+                <span data-word="{{ item.word }}" data-size="{{ item.size }}" data-color="{{ item.color }}" data-count="{{ item.count }}"></span>
                 {% endfor %}
             </div>
         </div>
@@ -951,11 +954,14 @@
 
     </div><!-- end .main -->
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.1.0/wordcloud2.min.js"></script>
     <script>
+        // ── Sentiment bar widths ──
         document.querySelectorAll('[data-w]').forEach(function(el) {
             el.style.width = el.getAttribute('data-w') + '%';
         });
 
+        // ── Filter toggle ──
         var toggle      = document.getElementById('filter-toggle');
         var panel       = document.getElementById('filter-panel');
         var filterQ     = document.getElementById('filter-q');
@@ -970,6 +976,7 @@
             panel.classList.toggle('open');
         });
 
+        // ── History ──
         function removeHistory(query) {
             fetch('/remove-history/', {
                 method: 'POST',
@@ -1047,6 +1054,68 @@
             params.delete('page');
             window.location.search = params.toString();
         }
+
+        // ── Word Cloud (wordcloud2.js) ──
+        (function() {
+            var dataEl = document.getElementById('wordcloud-data');
+            var canvas = document.getElementById('wordcloud-canvas');
+            if (!dataEl || !canvas) return;
+
+            var spans = Array.from(dataEl.querySelectorAll('span'));
+            if (!spans.length) return;
+
+            // Build [word, weight] list from data attributes
+            var list = spans.map(function(el) {
+                return [el.getAttribute('data-word'), parseFloat(el.getAttribute('data-size'))];
+            });
+
+            // Collect per-word colors for the color callback
+            var colorMap = {};
+            spans.forEach(function(el) {
+                colorMap[el.getAttribute('data-word')] = el.getAttribute('data-color');
+            });
+
+            // Size canvas to fill container at 2× for sharpness on retina
+            var wrap = canvas.parentElement;
+            var W = wrap.offsetWidth || 700;
+            var H = Math.round(W * 0.38); // ~38% aspect ratio
+            canvas.width  = W * 2;
+            canvas.height = H * 2;
+            canvas.style.width  = W  + 'px';
+            canvas.style.height = H  + 'px';
+
+            // Scale weights so largest word fills nicely
+            var maxW = Math.max.apply(null, list.map(function(x){return x[1];}));
+            var minW = Math.min.apply(null, list.map(function(x){return x[1];}));
+
+            WordCloud(canvas, {
+                list:          list,
+                gridSize:      Math.round(W / 80),
+                weightFactor:  function(size) {
+                    // Normalise 0–1, apply power curve to exaggerate differences,
+                    // then map to a pixel range of 10–70px (on the 2× canvas)
+                    var norm = (size - minW) / (maxW - minW || 1);
+                    var curved = Math.pow(norm, 0.6);   // <1 = spread out small words more
+                    return Math.round(10 + curved * 60) * 2;
+                },
+                fontFamily:    "'Segoe UI', Arial, sans-serif",
+                fontWeight:    '700',
+                color:         function(word) { return colorMap[word] || '#333'; },
+                rotateRatio:   0.35,
+                rotationSteps: 2,          // 0° and 90° only, like the reference image
+                backgroundColor: 'transparent',
+                shrinkToFit:   true,
+                drawOutOfBound: false,
+                click: function(item) {
+                    document.getElementById('search-input').value = item[0];
+                    document.getElementById('search-form').submit();
+                },
+                hover: function(item, dimension, event) {
+                    canvas.style.cursor = item ? 'pointer' : 'default';
+                },
+            });
+        })();
+
         // ── Autocomplete ──
         (function() {
             var input = document.getElementById('search-input');

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ── Path resolution: two levels up from this file → project root ────────────
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
-CSV_PATH = os.path.join(_PROJECT_ROOT, 'data', 'crawled_enriched.csv')
+CSV_PATH = os.path.join(os.path.dirname(__file__), '..', 'crawled_enriched.csv')
 
 
 # ── lnc vectorizer (documents) ──────────────────────────────────────────────
