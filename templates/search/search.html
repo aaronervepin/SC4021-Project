@@ -622,7 +622,7 @@
         {% for item in history %}
         <div class="history-row">
             <a class="history-item {% if item == query %}active{% endif %}" href="/?q={{ item }}">{{ item }}</a>
-            <button class="remove-btn" onclick="removeHistory('{{ item }}')">✕</button>
+            <button class="remove-btn" data-query="{{ item }}" onclick="removeHistory(this.getAttribute('data-query'))">✕</button>
         </div>
         {% empty %}
         <p class="no-history">No recent searches</p>
