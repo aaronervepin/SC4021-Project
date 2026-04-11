@@ -1,5 +1,48 @@
 # SC4021 Information Retrieval - Classification Report
 
+
+## Project Structure
+
+```
+SC4021-Project/
+├── run_classification.py          # Main entry point
+├── classification/                # Modular classification package
+│   ├── __init__.py
+│   ├── config.py                  # CLI args, constants, display mappings
+│   ├── data_loader.py             # Data loading utilities
+│   ├── models.py                  # Classifier factory, TF-IDF builder
+│   ├── evaluation.py              # 5-fold CV and metrics
+│   ├── preprocessing.py           # Q4: Data preprocessing & statistics
+│   ├── visualization.py           # All plotting functions
+│   ├── prediction.py              # Post-training prediction
+│   ├── innovations.py             # Q5: Ablation study (BoW→TF-IDF→Hybrid→Ensemble)
+│   └── report_printer.py          # Console output formatting
+├── figures/                       # Generated visualization plots
+│   ├── comparison_*.png           # Classifier comparison charts
+│   ├── delta_normalization.png    # Normalization impact analysis
+│   ├── label_distributions.png    # Dataset label distributions
+│   ├── performance_speed.png      # Speed comparison
+│   ├── ablation_study.png         # Q5 ablation study
+│   └── confusion_matrices/        # Per-experiment confusion matrices
+├── eval_preprocessed.csv          # Labeled evaluation dataset (5,733 records)
+├── crawled_clean.csv              # Crawled Reddit data
+├── classification_comparison_report.json  # Full JSON report
+└── report.md                      # This report
+```
+
+## How to Run
+
+```bash
+conda activate mdp
+python run_classification.py
+
+# Skip innovations or visualizations
+python run_classification.py --skip_innovations --skip_visualizations
+
+# Custom classifiers
+python run_classification.py --classifiers logistic svm nb
+```
+---
 ## Question 4: Classification
 
 ### 4.1 Choice of Classification Approach
@@ -267,46 +310,3 @@ Selected confusion matrices for the best-performing models:
 ### Sentiment (Linear SVM, Normalized Text)
 ![CM Sentiment SVM](figures/confusion_matrices/cm_sentiment_final_svm_original_text.png)
 
----
-
-## Project Structure
-
-```
-SC4021-Project/
-├── run_classification.py          # Main entry point
-├── classification/                # Modular classification package
-│   ├── __init__.py
-│   ├── config.py                  # CLI args, constants, display mappings
-│   ├── data_loader.py             # Data loading utilities
-│   ├── models.py                  # Classifier factory, TF-IDF builder
-│   ├── evaluation.py              # 5-fold CV and metrics
-│   ├── preprocessing.py           # Q4: Data preprocessing & statistics
-│   ├── visualization.py           # All plotting functions
-│   ├── prediction.py              # Post-training prediction
-│   ├── innovations.py             # Q5: Ablation study (BoW→TF-IDF→Hybrid→Ensemble)
-│   └── report_printer.py          # Console output formatting
-├── figures/                       # Generated visualization plots
-│   ├── comparison_*.png           # Classifier comparison charts
-│   ├── delta_normalization.png    # Normalization impact analysis
-│   ├── label_distributions.png    # Dataset label distributions
-│   ├── performance_speed.png      # Speed comparison
-│   ├── ablation_study.png         # Q5 ablation study
-│   └── confusion_matrices/        # Per-experiment confusion matrices
-├── eval_preprocessed.csv          # Labeled evaluation dataset (5,733 records)
-├── crawled_clean.csv              # Crawled Reddit data
-├── classification_comparison_report.json  # Full JSON report
-└── report.md                      # This report
-```
-
-## How to Run
-
-```bash
-conda activate mdp
-python run_classification.py
-
-# Skip innovations or visualizations
-python run_classification.py --skip_innovations --skip_visualizations
-
-# Custom classifiers
-python run_classification.py --classifiers logistic svm nb
-```
